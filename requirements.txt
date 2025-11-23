@@ -1,0 +1,7 @@
+google-generativeai
+gspread
+oauth2client
+schedule
+pytrends
+python-dotenv
+pandas

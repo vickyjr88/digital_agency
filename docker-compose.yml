@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  agency-bot:
+    build: .
+    container_name: agency-bot
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      # Mount the service account file if it exists locally
+      # - ./service_account.json:/app/service_account.json
+    env_file:
+      - .env
+    # To run in one-off mode, override the command:
+    # command: python main.py --mode once

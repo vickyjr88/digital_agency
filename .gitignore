@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+.env.local
+service_account.json
+
+# Logs
+*.log
+agency_bot.log
+
+# OS
+.DS_Store
+
+# Generated Content
+drafts/*.json
