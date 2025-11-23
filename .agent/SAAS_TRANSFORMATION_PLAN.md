@@ -181,7 +181,17 @@ Transform the current static "Digital Employee" bot into **Dexter**, a multi-ten
 - **Database:** PostgreSQL (replace Google Sheets)
 - **ORM:** SQLAlchemy
 - **Authentication:** JWT tokens + OAuth2
-- **Payment:** Stripe API
+- **Payment Processing:** 
+  - **Stripe** (Primary) - International cards, Apple Pay, Google Pay
+  - **Stripe for Africa** - M-Pesa (Kenya), Mobile Money (Ghana, Uganda, Tanzania)
+  - **Flutterwave** (Backup) - Additional African payment methods
+  - **Payment Methods Supported:**
+    - Credit/Debit Cards (Visa, Mastercard, Amex)
+    - M-Pesa (Kenya) - Mobile money
+    - MTN Mobile Money (Uganda, Ghana)
+    - Airtel Money (Kenya, Uganda, Tanzania)
+    - Bank transfers (Kenya, Nigeria, South Africa)
+    - USSD payments
 - **Email:** SendGrid or AWS SES
 - **Task Queue:** Celery + Redis (for async content generation)
 - **Storage:** AWS S3 (for logos, media)
@@ -239,6 +249,87 @@ Transform the current static "Digital Employee" bot into **Dexter**, a multi-ten
 - Users can subscribe to paid plans
 - Usage limits are enforced
 - Stripe webhooks handle subscription events
+
+#### 2.1 African Payment Integration Details
+
+**Primary Payment Gateway: Stripe**
+- Stripe supports M-Pesa and mobile money directly
+- No need for separate integration
+- Unified dashboard for all payments
+
+**Supported Payment Methods by Country:**
+
+**Kenya:**
+- M-Pesa (via Stripe)
+- Credit/Debit Cards
+- Bank transfers (KCB, Equity, Co-operative Bank)
+- Airtel Money
+
+**Uganda:**
+- MTN Mobile Money
+- Airtel Money
+- Credit/Debit Cards
+
+**Ghana:**
+- MTN Mobile Money
+- Vodafone Cash
+- AirtelTigo Money
+- Credit/Debit Cards
+
+**Nigeria:**
+- Bank transfers (GTBank, Zenith, Access, UBA)
+- Credit/Debit Cards
+- Verve cards
+
+**Tanzania:**
+- M-Pesa
+- Airtel Money
+- Tigo Pesa
+- Credit/Debit Cards
+
+**South Africa:**
+- Credit/Debit Cards
+- Instant EFT
+- SnapScan
+
+**Local Currency Pricing (Optional):**
+- **Kenya (KES):** Free, KES 2,900, KES 9,900, KES 29,900
+- **Nigeria (NGN):** Free, NGN 45,000, NGN 150,000, NGN 450,000
+- **South Africa (ZAR):** Free, ZAR 500, ZAR 1,700, ZAR 5,000
+- **USD (Default):** $0, $29, $99, $299
+
+**Implementation Notes:**
+1. Use Stripe's Payment Element for automatic payment method detection
+2. Enable M-Pesa in Stripe Dashboard (Settings → Payment Methods)
+3. Set up webhook endpoints for payment confirmations
+4. Handle currency conversion automatically via Stripe
+5. Fallback to Flutterwave for unsupported methods
+
+**M-Pesa Integration Flow:**
+1. User selects M-Pesa at checkout
+2. Stripe generates STK Push request
+3. User receives prompt on phone
+4. User enters M-Pesa PIN
+5. Payment confirmed instantly
+6. Subscription activated
+
+---
+
+### Phase 2.5: Mobile Money Optimization (Week 5.5)
+**Goal:** Optimize for African mobile money users
+
+**Tasks:**
+1. Add M-Pesa express checkout
+2. Implement USSD payment option (for feature phones)
+3. Add SMS payment confirmations
+4. Create mobile-optimized checkout flow
+5. Add support for offline payment verification
+6. Implement retry logic for failed mobile money transactions
+
+**Deliverables:**
+- M-Pesa payments work seamlessly
+- Mobile-first checkout experience
+- SMS notifications for payments
 
 ---
 
