@@ -5,3 +5,5 @@ schedule
 pytrends
 python-dotenv
 pandas
+tweepy
+beautifulsoup4

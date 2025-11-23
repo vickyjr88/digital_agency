@@ -15,6 +15,33 @@ class ContentGenerator:
             genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel('gemini-2.0-flash')
 
+    def select_local_trend(self, trends_list):
+        """
+        Uses AI to identify the most relevant 'Local/Niche' trend for Kenya/Nairobi from a list.
+        """
+        prompt = f"""
+        You are a trend analyst for a Kenyan digital agency.
+        Here is a list of current trending topics: {trends_list}
+        
+        Task: Identify the ONE topic that is most likely to be a specific LOCAL issue to Kenya or Nairobi (e.g., local politics, local celebrity, Nairobi weather, Kenyan events) rather than a broad global topic (like 'Football' or 'Technology').
+        
+        If no clear local trend exists, pick the most niche/specific one.
+        
+        Output: Return ONLY the trend name exactly as it appears in the list. No explanations.
+        """
+        try:
+            logging.info("Asking AI to select the best local trend...")
+            response = self.model.generate_content(prompt)
+            selected_trend = response.text.strip()
+            
+            # Basic validation to ensure it's in the list (fuzzy match or exact)
+            # For now, just return it.
+            logging.info(f"AI selected local trend: {selected_trend}")
+            return selected_trend
+        except Exception as e:
+            logging.error(f"Error selecting local trend: {e}")
+            return None
+
     def generate_content(self, trend, persona):
         """
         Generates content for a specific trend and persona.
