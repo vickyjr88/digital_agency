@@ -93,7 +93,7 @@ class Content(Base):
     generated_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime)
     published_at = Column(DateTime)
-    metadata = Column(JSON)  # Analytics, engagement data
+    meta_data = Column(JSON)  # Analytics, engagement data (renamed from metadata to avoid SQLAlchemy conflict)
     
     # Relationships
     brand = relationship("Brand", back_populates="content")
