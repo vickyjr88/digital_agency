@@ -7,9 +7,27 @@ services:
     restart: unless-stopped
     volumes:
       - .:/app
-      # Mount the service account file if it exists locally
-      # - ./service_account.json:/app/service_account.json
     env_file:
       - .env
-    # To run in one-off mode, override the command:
-    # command: python main.py --mode once
+    command: python main.py --mode schedule
+
+  agency-api:
+    build: .
+    container_name: agency-api
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    command: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+  agency-web:
+    build: ./web
+    container_name: agency-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - agency-api

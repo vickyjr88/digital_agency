@@ -62,6 +62,96 @@ class SheetsHandler:
         except Exception as e:
             logging.error(f"Error saving to Google Sheet: {e}")
 
+    def get_all_content(self):
+        """
+        Fetches all records from the sheet.
+        Returns a list of dictionaries with 'id' (row number) included.
+        Handles cases where headers might be missing.
+        """
+        if not self.sheet:
+            if not self.connect():
+                return []
+        
+        try:
+            # Get all values
+            rows = self.sheet.get_all_values()
+            if not rows:
+                return []
+            
+            EXPECTED_HEADERS = ["Timestamp", "Brand", "Trend", "Tweet", "Facebook Post", "Instagram Reel Script", "TikTok Idea", "Status"]
+            
+            # Check if the first row looks like headers
+            first_row = rows[0]
+            is_header = False
+            if len(first_row) >= 3 and first_row[0] == "Timestamp" and first_row[1] == "Brand":
+                is_header = True
+            
+            headers = EXPECTED_HEADERS
+            start_index = 0
+            
+            if is_header:
+                headers = first_row
+                start_index = 1
+            
+            data = []
+            # Iterate through rows
+            # Row index in Google Sheets is 1-based.
+            # If is_header is True, first data row is index 2.
+            # If is_header is False, first data row is index 1.
+            
+            current_row_idx = start_index + 1 # 1-based index for the first data row
+            
+            for i, row in enumerate(rows[start_index:], start=current_row_idx):
+                record = {"id": i}
+                for h_index, header in enumerate(headers):
+                    if h_index < len(row):
+                        record[header] = row[h_index]
+                    else:
+                        record[header] = ""
+                
+                # Ensure critical keys exist even if row is short
+                for expected in EXPECTED_HEADERS:
+                    if expected not in record:
+                        record[expected] = ""
+                        
+                data.append(record)
+            
+            # Sort by Timestamp descending (newest first) if possible
+            return sorted(data, key=lambda x: x.get('Timestamp', ''), reverse=True)
+        except Exception as e:
+            logging.error(f"Error fetching content: {e}")
+            return []
+
+    def update_content(self, row_id, update_data):
+        """
+        Updates a specific row in the sheet.
+        row_id: The 1-based row index.
+        update_data: Dictionary of {Header: NewValue}
+        """
+        if not self.sheet:
+            if not self.connect():
+                return False
+        
+        try:
+            # We need to map headers to column indices
+            headers = self.sheet.row_values(1)
+            
+            # Prepare a list of cells to update or update one by one?
+            # Updating one by one is slower but safer if we don't want to overwrite everything.
+            # Better: Construct the full row? No, that's risky.
+            # Let's iterate over the update_data and find the column index for each.
+            
+            for key, value in update_data.items():
+                if key in headers:
+                    col_index = headers.index(key) + 1
+                    self.sheet.update_cell(row_id, col_index, str(value))
+            
+            logging.info(f"Updated row {row_id} in Google Sheet.")
+            return True
+        except Exception as e:
+            logging.error(f"Error updating content: {e}")
+            return False
+
 if __name__ == "__main__":
     # Test
     handler = SheetsHandler()
