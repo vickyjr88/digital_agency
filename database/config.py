@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/dexter")
+# Use host.docker.internal to access host machine's PostgreSQL from Docker container
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@host.docker.internal:5432/dexter")
 
 # Create engine
 engine = create_engine(
