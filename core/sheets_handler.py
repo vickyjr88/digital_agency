@@ -3,6 +3,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import logging
 from datetime import datetime
 import os
+import json
 
 class SheetsHandler:
     def __init__(self, credentials_file='service_account.json', sheet_name='Agency Content Calendar'):
@@ -45,14 +46,21 @@ class SheetsHandler:
                 return
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Helper function to safely convert to string, using JSON for dicts/lists
+        def safe_str(value):
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False)
+            return str(value)
+        
         row = [
             timestamp,
             brand_name,
             trend,
             str(content_data.get('tweet', '')),
             str(content_data.get('facebook_post', '')),
-            str(content_data.get('instagram_reel_script', '')),
-            str(content_data.get('tiktok_idea', '')),
+            safe_str(content_data.get('instagram_reel_script', '')),
+            safe_str(content_data.get('tiktok_idea', '')),
             "Pending Review"
         ]
         

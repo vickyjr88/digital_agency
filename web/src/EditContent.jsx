@@ -117,18 +117,18 @@ export default function EditContent() {
                             />
                         </div>
 
-                        {/* Instagram/TikTok Section (Read Only or Editable if needed) */}
+                        {/* Instagram/TikTok Section */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-3">
                                 <label className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Instagram Reel Script</label>
-                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-sm text-gray-600 h-48 overflow-y-auto whitespace-pre-wrap">
-                                    {data['Instagram Reel Script']}
+                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-sm text-gray-600 h-96 overflow-y-auto">
+                                    <FormattedContent content={data['Instagram Reel Script']} />
                                 </div>
                             </div>
                             <div className="space-y-3">
                                 <label className="text-sm font-semibold text-gray-700 uppercase tracking-wide">TikTok Idea</label>
-                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-sm text-gray-600 h-48 overflow-y-auto whitespace-pre-wrap">
-                                    {data['TikTok Idea']}
+                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-100 text-sm text-gray-600 h-96 overflow-y-auto">
+                                    <FormattedContent content={data['TikTok Idea']} />
                                 </div>
                             </div>
                         </div>
@@ -137,4 +137,79 @@ export default function EditContent() {
             </div>
         </div>
     );
+}
+
+function FormattedContent({ content }) {
+    if (!content) return <span className="text-gray-400 italic">No content available</span>;
+
+    let parsed;
+
+    try {
+        // Try to parse as proper JSON (new format from updated backend)
+        parsed = JSON.parse(content);
+    } catch (jsonError) {
+        // If JSON parsing fails, it's old Python dict format
+        // Just display it in a more readable way
+        console.log('Displaying as formatted text (old Python dict format)');
+
+        // Format the Python dict string to be more readable
+        const formatted = content
+            .replace(/\{/g, '\n{\n  ')
+            .replace(/\}/g, '\n}')
+            .replace(/,\s*/g, ',\n  ')
+            .replace(/:\s*/g, ': ')
+            .replace(/\[/g, '[\n    ')
+            .replace(/\]/g, '\n  ]');
+
+        return (
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <p className="text-xs text-gray-500 mb-2 italic">
+                    Old format - regenerate content for better display
+                </p>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 font-mono">
+                    {formatted}
+                </div>
+            </div>
+        );
+    }
+
+    // Render the parsed JSON content (new format)
+    try {
+        return (
+            <div className="space-y-4">
+                {Object.entries(parsed).map(([key, value]) => (
+                    <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
+                        <h4 className="font-bold text-indigo-600 mb-2 text-sm uppercase tracking-wide">{key}</h4>
+                        {Array.isArray(value) ? (
+                            <ul className="space-y-2">
+                                {value.map((item, i) => (
+                                    <li key={i} className="text-gray-700 text-sm flex items-start gap-2">
+                                        <span className="text-indigo-400 mt-1">•</span>
+                                        <span className="flex-1">{item}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : typeof value === 'object' && value !== null ? (
+                            <div className="pl-4 space-y-1">
+                                {Object.entries(value).map(([subKey, subValue]) => (
+                                    <p key={subKey} className="text-gray-700 text-sm">
+                                        <span className="font-medium">{subKey}:</span> {subValue}
+                                    </p>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-gray-700 text-sm leading-relaxed">{value}</p>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    } catch (renderError) {
+        console.error('Error rendering formatted content:', renderError);
+        return (
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-600">
+                {content}
+            </div>
+        );
+    }
 }

@@ -90,7 +90,19 @@ export default function Dashboard() {
 
                             <div className="p-5 space-y-4 flex-1 flex flex-col">
                                 <div className="flex-1">
-                                    <p className="text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Twitter Content</p>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Twitter Content</p>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                copyToClipboard(item.Tweet);
+                                            }}
+                                            className="text-indigo-600 hover:text-indigo-800 text-xs font-medium flex items-center gap-1 transition-colors"
+                                            title="Copy Tweet"
+                                        >
+                                            <Copy size={12} /> Copy
+                                        </button>
+                                    </div>
                                     <p className="text-sm text-gray-600 line-clamp-4 leading-relaxed">
                                         {item.Tweet || 'No tweet content generated.'}
                                     </p>
