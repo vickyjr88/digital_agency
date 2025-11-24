@@ -23,9 +23,9 @@ services:
       timeout: 5s
       retries: 5
 
-  agency-bot:
+  trend-worker:
     build: .
-    container_name: agency-bot
+    container_name: trend-worker
     restart: unless-stopped
     volumes:
       - .:/app

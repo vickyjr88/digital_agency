@@ -83,12 +83,26 @@ class Brand(Base):
     content = relationship("Content", back_populates="brand", cascade="all, delete-orphan")
     team_members = relationship("TeamMember", back_populates="brand", cascade="all, delete-orphan")
 
+class Trend(Base):
+    __tablename__ = "trends"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    topic = Column(String(255), nullable=False)
+    volume = Column(String(50)) # e.g. "10k+" or "High"
+    url = Column(String(500))
+    source = Column(String(50)) # "Google", "Twitter", "Trends24"
+    timestamp = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    contents = relationship("Content", back_populates="trend_ref")
+
 class Content(Base):
     __tablename__ = "content"
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     brand_id = Column(String(36), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False)
-    trend = Column(String(500), nullable=False)
+    trend_id = Column(String(36), ForeignKey("trends.id", ondelete="SET NULL"), nullable=True)
+    trend = Column(String(500), nullable=False) # Keep for backward compatibility or direct text
     trend_category = Column(String(50))  # viral, local, niche
     tweet = Column(Text)
     facebook_post = Column(Text)
@@ -102,6 +116,7 @@ class Content(Base):
     
     # Relationships
     brand = relationship("Brand", back_populates="content")
+    trend_ref = relationship("Trend", back_populates="contents")
 
 class Usage(Base):
     __tablename__ = "usage"

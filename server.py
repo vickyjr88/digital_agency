@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 # Import database and auth utilities
 from database.config import get_db, init_db, SessionLocal
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -262,6 +262,7 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email,
         "name": current_user.name,
+        "role": current_user.role,
         "subscription_tier": current_user.subscription_tier,
         "subscription_status": current_user.subscription_status,
         "trial_ends_at": current_user.trial_ends_at,
@@ -466,6 +467,140 @@ def update_content_item(
     return content
 
 # ============================================================================
+# TRENDS & GENERATION ENDPOINTS
+# ============================================================================
+
+class GenerateRequest(BaseModel):
+    trend: str
+    trend_id: Optional[str] = None
+
+@app.get("/api/trends")
+def get_trends(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get latest trends from the database.
+    """
+    from core.trend_service import TrendService
+    service = TrendService(db)
+    return service.get_latest_trends(limit)
+
+@app.post("/api/trends/refresh")
+def refresh_trends(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger a fresh fetch of trends (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    from core.trend_service import TrendService
+    service = TrendService(db)
+    trends = service.fetch_and_store_trends()
+    return {"status": "success", "count": len(trends)}
+
+@app.post("/api/generate/{brand_id}")
+def generate_content_on_demand(
+    brand_id: str,
+    request: GenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate content for a specific brand and trend.
+    """
+    # 1. Verify Brand Ownership
+    brand = db.query(Brand).filter(
+        Brand.id == brand_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    # 2. Prepare Persona for AI
+    persona = {
+        "name": brand.name,
+        "role": brand.industry or "Brand",
+        "voice": brand.voice,
+        "content_focus": brand.content_focus or [],
+        "key_message": brand.description,
+        "hashtags": brand.hashtags or []
+    }
+    
+    # 3. Generate Content
+    generator = ContentGenerator()
+    content_data = generator.generate_content(request.trend, persona)
+    
+    if not content_data:
+        raise HTTPException(status_code=500, detail="Content generation failed")
+    
+    # 4. Save to Database
+    new_content = Content(
+        brand_id=brand.id,
+        trend_id=request.trend_id,
+        trend=request.trend,
+        trend_category="On-Demand",
+        tweet=content_data.get("tweet"),
+        facebook_post=content_data.get("facebook_post"),
+        instagram_reel_script=content_data.get("instagram_reel_script"),
+        tiktok_idea=content_data.get("tiktok_idea"),
+        status=ContentStatus.PENDING,
+        generated_at=datetime.utcnow()
+    )
+    
+    db.add(new_content)
+    db.commit()
+    db.refresh(new_content)
+    
+    # 5. Update Usage
+    usage = db.query(Usage).filter(
+        Usage.user_id == current_user.id,
+        Usage.month == datetime.utcnow().strftime("%Y-%m")
+    ).first()
+    
+    if not usage:
+        usage = Usage(
+            user_id=current_user.id,
+            month=datetime.utcnow().strftime("%Y-%m"),
+            content_generated_count=0,
+            api_calls_count=0
+        )
+        db.add(usage)
+    
+    if usage.content_generated_count is None:
+        usage.content_generated_count = 0
+        
+    usage.content_generated_count += 1
+    db.commit()
+    
+    return new_content
+
+# ============================================================================
+# LEGACY ENDPOINTS (Backward Compatibility)
+# ============================================================================
+
+@app.get("/api/admin/users")
+def get_all_users(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all users (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    users = db.query(User).all()
+    return users
+
+# ============================================================================
 # LEGACY ENDPOINTS (Backward Compatibility)
 # ============================================================================
 
@@ -500,21 +635,6 @@ def update_content_legacy(row_id: int, update: UpdateRequest):
     if success:
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Failed to update content")
-
-# ============================================================================
-# STARTUP EVENT
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Initialize database on startup.
-    """
-    try:
-        init_db()
-        print("✅ Database initialized successfully!")
-    except Exception as e:
-        print(f"⚠️  Database initialization failed: {e}")
 
 if __name__ == "__main__":
     import uvicorn
