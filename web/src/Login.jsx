@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Lock, User, ArrowRight } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('');
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,18 +16,26 @@ export default function Login({ onLogin }) {
     setError('');
 
     try {
-      const res = await fetch('/api/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
+
+      const data = await res.json();
+
       if (res.ok) {
-        onLogin();
+        // Store JWT token
+        localStorage.setItem('token', data.access_token);
+        // Call onLogin callback
+        if (onLogin) onLogin();
+        // Redirect to dashboard
+        navigate('/dashboard');
       } else {
-        setError('Invalid credentials');
+        setError(data.detail || 'Invalid email or password');
       }
     } catch (err) {
-      setError('Login failed. Please try again.');
+      setError('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -52,24 +62,25 @@ export default function Login({ onLogin }) {
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
-              className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-100"
+              className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2 border border-red-100"
             >
+              <AlertCircle size={18} />
               {error}
             </motion.div>
           )}
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700 ml-1">Username</label>
+            <label className="text-sm font-medium text-gray-700 ml-1">Email Address</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                <User size={18} />
+                <Mail size={18} />
               </div>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white outline-none"
-                placeholder="Enter your username"
+                placeholder="you@example.com"
                 required
               />
             </div>
@@ -86,7 +97,7 @@ export default function Login({ onLogin }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white outline-none"
-                placeholder="Enter your password"
+                placeholder="••••••••"
                 required
               />
             </div>
@@ -106,6 +117,15 @@ export default function Login({ onLogin }) {
             )}
           </button>
         </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link to="/signup" className="text-indigo-600 hover:text-indigo-700 font-semibold">
+              Sign up for free
+            </Link>
+          </p>
+        </div>
       </motion.div>
     </div>
   );
