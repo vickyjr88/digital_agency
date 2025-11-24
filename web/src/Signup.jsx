@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Lock, User, Mail, ArrowRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { Lock, User, Mail, ArrowRight, CheckCircle, AlertCircle, Home } from 'lucide-react';
 
 export default function Signup() {
     const navigate = useNavigate();
@@ -90,6 +90,14 @@ export default function Signup() {
                 transition={{ duration: 0.5 }}
                 className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-white/50 backdrop-blur-sm"
             >
+                <Link
+                    to="/"
+                    className="absolute top-4 left-4 flex items-center gap-2 text-gray-600 hover:text-indigo-600 transition-colors"
+                >
+                    <Home size={20} />
+                    <span className="text-sm font-medium">Home</span>
+                </Link>
+
                 <div className="text-center mb-8">
                     <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
                         <User size={28} />
