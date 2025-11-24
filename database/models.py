@@ -36,6 +36,10 @@ class TeamRole(str, enum.Enum):
     EDITOR = "editor"
     ADMIN = "admin"
 
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"
+    USER = "user"
+
 # Models
 class User(Base):
     __tablename__ = "users"
@@ -44,6 +48,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255))
+    role = Column(Enum(UserRole), default=UserRole.USER)
     subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE)
     subscription_status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIAL)
     stripe_customer_id = Column(String(255), unique=True)

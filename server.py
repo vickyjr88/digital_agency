@@ -11,8 +11,8 @@ import os
 from dotenv import load_dotenv
 
 # Import database and auth utilities
-from database.config import get_db, init_db
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus
+from database.config import get_db, init_db, SessionLocal
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -21,6 +21,8 @@ from auth.utils import (
     Token
 )
 from core.sheets_handler import SheetsHandler
+from core.generator import ContentGenerator
+from config.personas import PERSONAS
 
 load_dotenv()
 
@@ -29,6 +31,58 @@ app = FastAPI(
     description="AI Content Marketing Platform API",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
+    
+    # Seed Admin User and Brands
+    db = SessionLocal()
+    try:
+        admin_email = os.getenv("ADMIN_USER", "admin@dexter.com")
+        admin_pass = os.getenv("ADMIN_PASS", "changeme")
+        
+        # Check if admin exists
+        admin = db.query(User).filter(User.email == admin_email).first()
+        
+        if not admin:
+            print(f"🌱 Seeding Admin User: {admin_email}")
+            admin = User(
+                email=admin_email,
+                password_hash=get_password_hash(admin_pass),
+                name="Dexter Admin",
+                role=UserRole.ADMIN,
+                subscription_tier=SubscriptionTier.AGENCY,
+                subscription_status=SubscriptionStatus.ACTIVE
+            )
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            
+        # Seed Predefined Brands (owned by Admin)
+        for key, data in PERSONAS.items():
+            existing_brand = db.query(Brand).filter(Brand.name == data["name"], Brand.user_id == admin.id).first()
+            if not existing_brand:
+                print(f"🌱 Seeding Brand: {data['name']}")
+                brand = Brand(
+                    user_id=admin.id,
+                    name=data["name"],
+                    industry="General", # Default
+                    description=data.get("role", "Predefined Brand"),
+                    voice=data.get("voice", "Professional"),
+                    content_focus=data.get("content_focus", []),
+                    hashtags=data.get("hashtags", []),
+                    is_active=True
+                )
+                db.add(brand)
+        
+        db.commit()
+        
+    except Exception as e:
+        print(f"⚠️ Seeding failed: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 # CORS Setup
 origins = [
