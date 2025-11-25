@@ -1,7 +1,7 @@
 # Updated requirements.txt with new dependencies for SaaS platform
 
 # Existing dependencies
-google-generativeai
+google-generativeai>=0.7.0
 gspread
 oauth2client
 schedule
@@ -29,3 +29,6 @@ sendgrid  # Email service
 celery[redis]  # Task queue
 redis  # Cache and message broker
 boto3  # AWS S3 for file storage
+openai>=1.0.0  # ChatGPT fallback
+apscheduler  # Scheduled tasks
+requests  # HTTP requests for scraping

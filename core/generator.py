@@ -19,7 +19,7 @@ class ContentGenerator:
         else:
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash-001')
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
                 logging.info("ContentGenerator initialized successfully with Gemini API")
             except Exception as e:
                 logging.error(f"Failed to initialize Gemini model: {e}")
