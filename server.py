@@ -84,6 +84,26 @@ def startup_event():
     finally:
         db.close()
 
+    # Initialize Scheduler for Trend Updates
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from core.trend_service import TrendService
+    
+    def scheduled_trend_refresh():
+        print("⏰ Running scheduled trend refresh...")
+        db = SessionLocal()
+        try:
+            service = TrendService(db)
+            service.fetch_and_store_trends()
+        except Exception as e:
+            print(f"❌ Scheduled trend refresh failed: {e}")
+        finally:
+            db.close()
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(scheduled_trend_refresh, 'interval', hours=1)
+    scheduler.start()
+    print("✅ Scheduler started: Trends will refresh every hour.")
+
 # CORS Setup
 origins = [
     "http://localhost:5173",  # Vite default
