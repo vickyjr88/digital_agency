@@ -6,19 +6,42 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import openai
+
 class ContentGenerator:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
+        # Initialize Gemini
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
         if not api_key:
-            logging.warning("GEMINI_API_KEY not found in environment variables.")
+            logging.error("GEMINI_API_KEY or GOOGLE_API_KEY not found in environment variables.")
+            self.model = None
         else:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-2.0-flash')
+            try:
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                logging.info("ContentGenerator initialized successfully with Gemini API")
+            except Exception as e:
+                logging.error(f"Failed to initialize Gemini model: {e}")
+                self.model = None
+
+        # Initialize OpenAI (Fallback)
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        if self.openai_api_key:
+            self.openai_client = openai.OpenAI(api_key=self.openai_api_key)
+            logging.info("OpenAI fallback initialized successfully")
+        else:
+            self.openai_client = None
+            logging.warning("OPENAI_API_KEY not found. ChatGPT fallback disabled.")
 
     def select_local_trend(self, trends_list):
         """
         Uses AI to identify the most relevant 'Local/Niche' trend for Kenya/Nairobi from a list.
         """
+        if not self.model and not self.openai_client:
+            logging.error("Cannot select trend: No AI models initialized")
+            return trends_list[0] if trends_list else None
+            
         prompt = f"""
         You are a trend analyst for a Kenyan digital agency.
         Here is a list of current trending topics: {trends_list}
@@ -29,41 +52,82 @@ class ContentGenerator:
         
         Output: Return ONLY the trend name exactly as it appears in the list. No explanations.
         """
-        try:
-            logging.info("Asking AI to select the best local trend...")
-            response = self.model.generate_content(prompt)
-            selected_trend = response.text.strip()
-            
-            # Basic validation to ensure it's in the list (fuzzy match or exact)
-            # For now, just return it.
-            logging.info(f"AI selected local trend: {selected_trend}")
-            return selected_trend
-        except Exception as e:
-            logging.error(f"Error selecting local trend: {e}")
-            return None
+        
+        # Try Gemini first
+        if self.model:
+            try:
+                logging.info("Asking Gemini to select the best local trend...")
+                response = self.model.generate_content(prompt)
+                selected_trend = response.text.strip()
+                logging.info(f"Gemini selected local trend: {selected_trend}")
+                return selected_trend
+            except Exception as e:
+                logging.error(f"Gemini failed to select trend: {e}")
+        
+        # Fallback to OpenAI
+        if self.openai_client:
+            try:
+                logging.info("Asking ChatGPT (fallback) to select the best local trend...")
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3
+                )
+                selected_trend = response.choices[0].message.content.strip()
+                logging.info(f"ChatGPT selected local trend: {selected_trend}")
+                return selected_trend
+            except Exception as e:
+                logging.error(f"ChatGPT failed to select trend: {e}")
+                
+        return trends_list[0] if trends_list else None
 
     def generate_content(self, trend, persona):
         """
         Generates content for a specific trend and persona.
         Returns a dictionary with content for Tweet, Facebook, Instagram, and TikTok.
         """
+        if not self.model and not self.openai_client:
+            logging.error("Cannot generate content: No AI models initialized.")
+            return None
+            
         prompt = self._construct_prompt(trend, persona)
         
+        # Try Gemini first
+        if self.model:
+            try:
+                logging.info(f"Generating content with Gemini for {persona['name']} on trend '{trend}'...")
+                response = self.model.generate_content(prompt)
+                return self._parse_response(response.text)
+            except Exception as e:
+                logging.error(f"Gemini generation failed: {e}")
+        
+        # Fallback to OpenAI
+        if self.openai_client:
+            try:
+                logging.info(f"Generating content with ChatGPT (fallback) for {persona['name']} on trend '{trend}'...")
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4",  # Use GPT-4 for better creative writing
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7
+                )
+                return self._parse_response(response.choices[0].message.content)
+            except Exception as e:
+                logging.error(f"ChatGPT generation failed: {e}")
+                
+        return None
+
+    def _parse_response(self, text_response):
+        """Helper to parse JSON response from AI models"""
         try:
-            logging.info(f"Generating content for {persona['name']} on trend '{trend}'...")
-            response = self.model.generate_content(prompt)
-            
-            # clean up response to ensure it's valid JSON
-            text_response = response.text.strip()
+            text_response = text_response.strip()
             if text_response.startswith("```json"):
                 text_response = text_response[7:-3]
             elif text_response.startswith("```"):
                 text_response = text_response[3:-3]
             
-            content_data = json.loads(text_response)
-            return content_data
+            return json.loads(text_response)
         except Exception as e:
-            logging.error(f"Error generating content: {e}")
+            logging.error(f"Error parsing AI response: {e}")
             return None
 
     def _construct_prompt(self, trend, persona):
