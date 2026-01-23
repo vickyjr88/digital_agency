@@ -1,0 +1,772 @@
+# FastAPI Server with User Authentication and Brand Management
+
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr, validator
+from sqlalchemy.orm import Session
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+# Import database and auth utilities
+from database.config import get_db, init_db, SessionLocal
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend
+from auth.utils import (
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    decode_access_token,
+    Token
+)
+from core.sheets_handler import SheetsHandler
+from core.generator import ContentGenerator
+from config.personas import PERSONAS
+
+load_dotenv()
+
+app = FastAPI(
+    title="Dexter API",
+    description="AI Content Marketing Platform API",
+    version="1.0.0"
+)
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
+    
+    # Seed Admin User and Brands
+    db = SessionLocal()
+    try:
+        admin_email = os.getenv("ADMIN_USER", "admin@dexter.com")
+        admin_pass = os.getenv("ADMIN_PASS", "changeme")
+        
+        # Check if admin exists
+        admin = db.query(User).filter(User.email == admin_email).first()
+        
+        if not admin:
+            print(f"🌱 Seeding Admin User: {admin_email}")
+            admin = User(
+                email=admin_email,
+                password_hash=get_password_hash(admin_pass),
+                name="Dexter Admin",
+                role=UserRole.ADMIN,
+                subscription_tier=SubscriptionTier.AGENCY,
+                subscription_status=SubscriptionStatus.ACTIVE
+            )
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            
+        # Seed Predefined Brands (owned by Admin)
+        for key, data in PERSONAS.items():
+            existing_brand = db.query(Brand).filter(Brand.name == data["name"], Brand.user_id == admin.id).first()
+            if not existing_brand:
+                print(f"🌱 Seeding Brand: {data['name']}")
+                brand = Brand(
+                    user_id=admin.id,
+                    name=data["name"],
+                    industry="General", # Default
+                    description=data.get("role", "Predefined Brand"),
+                    voice=data.get("voice", "Professional"),
+                    content_focus=data.get("content_focus", []),
+                    hashtags=data.get("hashtags", []),
+                    is_active=True
+                )
+                db.add(brand)
+        
+        db.commit()
+        
+    except Exception as e:
+        print(f"⚠️ Seeding failed: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+    # Initialize Scheduler for Trend Updates
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from core.trend_service import TrendService
+    
+    def scheduled_trend_refresh():
+        print("⏰ Running scheduled trend refresh...")
+        db = SessionLocal()
+        try:
+            service = TrendService(db)
+            service.fetch_and_store_trends()
+        except Exception as e:
+            print(f"❌ Scheduled trend refresh failed: {e}")
+        finally:
+            db.close()
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(scheduled_trend_refresh, 'interval', hours=1)
+    scheduler.start()
+    print("✅ Scheduler started: Trends will refresh every hour.")
+
+# CORS Setup
+origins = [
+    "http://localhost:5173",  # Vite default
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "*"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Security
+security = HTTPBearer()
+
+# Pydantic Models
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        return v
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class BrandCreate(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    description: Optional[str] = None
+    voice: Optional[str] = "professional"
+    content_focus: Optional[List[str]] = []
+    hashtags: Optional[List[str]] = []
+    custom_instructions: Optional[str] = None
+
+class BrandUpdate(BaseModel):
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    description: Optional[str] = None
+    voice: Optional[str] = None
+    content_focus: Optional[List[str]] = None
+    hashtags: Optional[List[str]] = None
+    custom_instructions: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ContentUpdate(BaseModel):
+    tweet: Optional[str] = None
+    facebook_post: Optional[str] = None
+    status: Optional[str] = None
+
+# Legacy models (for backward compatibility)
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UpdateRequest(BaseModel):
+    row_id: int
+    data: Dict[str, Any]
+
+# Dependency to get current user from JWT token
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Validate JWT token and return current user.
+    """
+    token = credentials.credentials
+    token_data = decode_access_token(token)
+    
+    if token_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    user = db.query(User).filter(User.email == token_data.email).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    return user
+
+# Health Check
+@app.get("/")
+def root():
+    return {
+        "message": "Dexter API",
+        "version": "1.0.0",
+        "status": "running"
+    }
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+# ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+@app.post("/api/auth/register", response_model=Token)
+def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    """
+    Register a new user.
+    Returns JWT token on success.
+    """
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Create new user
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        password_hash=hashed_password,
+        name=user_data.name,
+        subscription_tier=SubscriptionTier.FREE,
+        subscription_status=SubscriptionStatus.TRIAL,
+        trial_ends_at=datetime.utcnow() + timedelta(days=14)
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Create access token
+    access_token = create_access_token(
+        data={"sub": new_user.email, "user_id": new_user.id}
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/login", response_model=Token)
+def login_new(credentials: UserLogin, db: Session = Depends(get_db)):
+    """
+    Login with email and password.
+    Returns JWT token on success.
+    """
+    user = db.query(User).filter(User.email == credentials.email).first()
+    
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+    
+    # Create access token
+    access_token = create_access_token(
+        data={"sub": user.email, "user_id": user.id}
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/auth/me")
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """
+    Get current user information.
+    """
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name,
+        "role": current_user.role,
+        "subscription_tier": current_user.subscription_tier,
+        "subscription_status": current_user.subscription_status,
+        "trial_ends_at": current_user.trial_ends_at,
+        "created_at": current_user.created_at
+    }
+
+# ============================================================================
+# BRAND MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.get("/api/brands")
+def get_brands(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all brands for the current user.
+    """
+    brands = db.query(Brand).filter(Brand.user_id == current_user.id).all()
+    return brands
+
+@app.post("/api/brands", status_code=status.HTTP_201_CREATED)
+def create_brand(
+    brand_data: BrandCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new brand for the current user.
+    """
+    # Check brand limit based on subscription tier
+    brand_count = db.query(Brand).filter(Brand.user_id == current_user.id).count()
+    
+    limits = {
+        SubscriptionTier.FREE: 1,
+        SubscriptionTier.STARTER: 3,
+        SubscriptionTier.PROFESSIONAL: 10,
+        SubscriptionTier.AGENCY: float('inf')
+    }
+    
+    if brand_count >= limits.get(current_user.subscription_tier, 1):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Brand limit reached for {current_user.subscription_tier} tier"
+        )
+    
+    new_brand = Brand(
+        user_id=current_user.id,
+        name=brand_data.name,
+        industry=brand_data.industry,
+        description=brand_data.description,
+        voice=brand_data.voice,
+        content_focus=brand_data.content_focus,
+        hashtags=brand_data.hashtags,
+        custom_instructions=brand_data.custom_instructions
+    )
+    
+    db.add(new_brand)
+    db.commit()
+    db.refresh(new_brand)
+    
+    return new_brand
+
+@app.get("/api/brands/{brand_id}")
+def get_brand(
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific brand by ID.
+    """
+    query = db.query(Brand).filter(Brand.id == brand_id)
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Brand.user_id == current_user.id)
+    brand = query.first()
+    
+    if not brand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand not found"
+        )
+    
+    return brand
+
+@app.put("/api/brands/{brand_id}")
+def update_brand(
+    brand_id: str,
+    brand_data: BrandUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a brand.
+    """
+    brand = db.query(Brand).filter(
+        Brand.id == brand_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not brand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand not found"
+        )
+    
+    # Update fields
+    update_data = brand_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(brand, field, value)
+    
+    db.commit()
+    db.refresh(brand)
+    
+    return brand
+
+@app.delete("/api/brands/{brand_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_brand(
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a brand.
+    """
+    brand = db.query(Brand).filter(
+        Brand.id == brand_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not brand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand not found"
+        )
+    
+    db.delete(brand)
+    db.commit()
+    
+    return None
+
+# ============================================================================
+# CONTENT ENDPOINTS
+# ============================================================================
+
+@app.get("/api/brands/{brand_id}/content")
+def get_brand_content(
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all content for a specific brand.
+    """
+    # Verify brand ownership
+    query = db.query(Brand).filter(Brand.id == brand_id)
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Brand.user_id == current_user.id)
+    brand = query.first()
+    
+    if not brand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand not found"
+        )
+    
+    content = db.query(Content).filter(Content.brand_id == brand_id).order_by(Content.generated_at.desc()).all()
+    return content
+
+@app.put("/api/content/{content_id}")
+def update_content_item(
+    content_id: str,
+    content_data: ContentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a content item.
+    """
+    content = db.query(Content).join(Brand).filter(
+        Content.id == content_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Content not found"
+        )
+    
+    # Update fields
+    update_data = content_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(content, field, value)
+    
+    if content_data.status == "approved":
+        content.approved_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(content)
+    
+    return content
+
+# ============================================================================
+# TRENDS & GENERATION ENDPOINTS
+# ============================================================================
+
+class GenerateRequest(BaseModel):
+    trend: str
+    trend_id: Optional[str] = None
+
+@app.get("/api/trends")
+def get_trends(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get latest trends from the database.
+    """
+    from core.trend_service import TrendService
+    service = TrendService(db)
+    return service.get_latest_trends(limit)
+
+@app.post("/api/trends/refresh")
+def refresh_trends(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger a fresh fetch of trends (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    from core.trend_service import TrendService
+    service = TrendService(db)
+    trends = service.fetch_and_store_trends()
+    return {"status": "success", "count": len(trends)}
+
+@app.post("/api/generate/{brand_id}")
+def generate_content_on_demand(
+    brand_id: str,
+    request: GenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate content for a specific brand and trend.
+    """
+    # 1. Verify Brand Ownership
+    brand = db.query(Brand).filter(
+        Brand.id == brand_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    # 2. Prepare Persona for AI
+    persona = {
+        "name": brand.name,
+        "role": brand.industry or "Brand",
+        "voice": brand.voice,
+        "content_focus": brand.content_focus or [],
+        "key_message": brand.description,
+        "hashtags": brand.hashtags or []
+    }
+    
+    # 3. Generate Content
+    generator = ContentGenerator()
+    content_data = generator.generate_content(request.trend, persona)
+    
+    if not content_data:
+        raise HTTPException(status_code=500, detail="Content generation failed")
+    
+    # 4. Save to Database
+    new_content = Content(
+        brand_id=brand.id,
+        trend_id=request.trend_id,
+        trend=request.trend,
+        trend_category="On-Demand",
+        tweet=content_data.get("tweet"),
+        facebook_post=content_data.get("facebook_post"),
+        instagram_reel_script=content_data.get("instagram_reel_script"),
+        tiktok_idea=content_data.get("tiktok_idea"),
+        status=ContentStatus.PENDING,
+        generated_at=datetime.utcnow()
+    )
+    
+    db.add(new_content)
+    db.commit()
+    db.refresh(new_content)
+    
+    # 5. Update Usage
+    usage = db.query(Usage).filter(
+        Usage.user_id == current_user.id,
+        Usage.month == datetime.utcnow().strftime("%Y-%m")
+    ).first()
+    
+    if not usage:
+        usage = Usage(
+            user_id=current_user.id,
+            month=datetime.utcnow().strftime("%Y-%m"),
+            content_generated_count=0,
+            api_calls_count=0
+        )
+        db.add(usage)
+    
+    if usage.content_generated_count is None:
+        usage.content_generated_count = 0
+        
+    usage.content_generated_count += 1
+    db.commit()
+    
+    return new_content
+
+# ============================================================================
+# LEGACY ENDPOINTS (Backward Compatibility)
+# ============================================================================
+
+@app.get("/api/admin/users")
+def get_all_users(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all users (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    users = db.query(User).all()
+    return users
+
+# ============================================================================
+# LEGACY ENDPOINTS (Backward Compatibility)
+# ============================================================================
+
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASS = os.getenv("ADMIN_PASS", "password")
+
+@app.post("/api/login")
+def login_legacy(creds: LoginRequest):
+    """
+    Legacy login endpoint for old dashboard.
+    """
+    if creds.username == ADMIN_USER and creds.password == ADMIN_PASS:
+        return {"status": "success", "token": "fake-jwt-token-for-demo"}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.get("/api/content")
+def get_content_legacy():
+    """
+    Legacy endpoint - returns Google Sheets data.
+    """
+    handler = SheetsHandler()
+    data = handler.get_all_content()
+    return data
+
+@app.put("/api/content/{row_id}")
+def update_content_legacy(row_id: int, update: UpdateRequest):
+    """
+    Legacy endpoint - updates Google Sheets.
+    """
+    handler = SheetsHandler()
+    success = handler.update_content(row_id, update.data)
+    if success:
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to update content")
+
+# ADMIN STATISTICS ENDPOINTS
+# ============================================================================
+
+@app.get("/api/admin/stats")
+def get_admin_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    total_users = db.query(User).count()
+    total_brands = db.query(Brand).count()
+    total_trends = db.query(Trend).count()
+    total_content = db.query(Content).count()
+    
+    return {
+        "users": total_users,
+        "brands": total_brands,
+        "trends": total_trends,
+        "content": total_content
+    }
+
+@app.get("/api/admin/latest")
+def get_admin_latest(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    latest_users = db.query(User).order_by(User.created_at.desc()).limit(5).all()
+    latest_brands = db.query(Brand).order_by(Brand.created_at.desc()).limit(5).all()
+    latest_trends = db.query(Trend).order_by(Trend.timestamp.desc()).limit(5).all()
+    latest_content = db.query(Content).order_by(Content.generated_at.desc()).limit(5).all()
+    
+    return {
+        "users": latest_users,
+        "brands": latest_brands,
+        "trends": latest_trends,
+        "content": latest_content
+    }
+
+@app.get("/api/admin/brands")
+def get_all_brands_admin(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    # Join Brand with User to get owner details
+    brands = db.query(Brand).join(User).all()
+    
+    result = []
+    for brand in brands:
+        result.append({
+            "id": brand.id,
+            "name": brand.name,
+            "industry": brand.industry,
+            "created_at": brand.created_at,
+            "is_active": brand.is_active,
+            "owner": {
+                "id": brand.user.id,
+                "name": brand.user.name,
+                "email": brand.user.email
+            }
+        })
+        
+    return result
+
+@app.get("/api/admin/users/{user_id}")
+def get_admin_user_details(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Manually construct response
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "subscription_tier": user.subscription_tier,
+        "subscription_status": user.subscription_status,
+        "created_at": user.created_at,
+        "brands": [
+            {
+                "id": b.id,
+                "name": b.name,
+                "industry": b.industry,
+                "is_active": b.is_active,
+                "created_at": b.created_at
+            } for b in user.brands
+        ],
+        "usage": [
+            {
+                "month": u.month,
+                "content_generated_count": u.content_generated_count,
+                "api_calls_count": u.api_calls_count
+            } for u in user.usage
+        ]
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
