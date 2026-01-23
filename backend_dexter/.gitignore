@@ -1,0 +1,103 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# dotenv
+.env
+.env.*
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# VS Code
+.vscode/
+
+# Alembic
+alembic/versions/*.pyc
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Local scripts
+*.sh
+
+# Database
+*.sqlite3
+
+# Ignore drafts
+/drafts/
+
+# Ignore railway config
+railway.toml
+
+# Ignore Docker local files
+docker-compose.override.yml
+
+# Ignore compiled files
+*.pyo
+
+# Ignore test output
+*.out
+
+# Ignore backup files
+*~
+
+# Ignore SSH config
+.ssh/
+
+# Ignore node_modules (if any)
+node_modules/
