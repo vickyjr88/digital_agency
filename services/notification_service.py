@@ -2,7 +2,7 @@
 # Provides centralized notification creation and management
 
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 from enum import Enum
 
@@ -44,7 +44,7 @@ class NotificationService:
     def create(
         self,
         user_id: str,
-        type: NotificationType | str,
+        type: Union[NotificationType, str],
         title: str,
         message: str,
         action_url: Optional[str] = None,
@@ -87,7 +87,7 @@ class NotificationService:
     def create_batch(
         self,
         user_ids: List[str],
-        type: NotificationType | str,
+        type: Union[NotificationType, str],
         title: str,
         message: str,
         action_url: Optional[str] = None,
