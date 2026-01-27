@@ -1,6 +1,6 @@
 # FastAPI Server with User Authentication and Brand Management
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, validator
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 # Import database and auth utilities
 from database.config import get_db, init_db, SessionLocal
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend, generate_uuid
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -23,6 +23,7 @@ from auth.utils import (
 from core.sheets_handler import SheetsHandler
 from core.generator import ContentGenerator
 from config.personas import PERSONAS
+from core.paystack_service import PaystackService, PaystackConfig, PaystackWebhookHandler
 
 load_dotenv()
 
@@ -288,6 +289,152 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "trial_ends_at": current_user.trial_ends_at,
         "created_at": current_user.created_at
     }
+
+# ============================================================================
+# BILLING & SUBSCRIPTION ENDPOINTS (Paystack / Kenya)
+# ============================================================================
+
+@app.get("/api/billing/plans")
+def get_billing_plans():
+    """
+    Get available subscription plans (KES).
+    """
+    return PaystackService.get_all_plans()
+
+class SubscriptionRequest(BaseModel):
+    plan_id: str
+    callback_url: Optional[str] = "https://dexter.vitaldigitalmedia.net/dashboard/billing/callback"
+
+@app.post("/api/billing/subscribe")
+def subscribe_to_plan(
+    request: SubscriptionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Initialize a subscription transaction.
+    """
+    plan = PaystackService.get_plan_details(request.plan_id)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan ID")
+    
+    service = PaystackService()
+    
+    # Amount is in kobo (cents)
+    amount = plan["amount"]
+    
+    try:
+        # Initialize transaction with Paystack
+        response = service.initialize_transaction(
+            email=current_user.email,
+            amount=amount,
+            plan_id=request.plan_id,
+            user_id=current_user.id,
+            callback_url=request.callback_url,
+            metadata={
+                "user_id": current_user.id,
+                "plan_id": request.plan_id,
+                "plan_name": plan["name"]
+            }
+        )
+        
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/billing/verify/{reference}")
+def verify_payment(
+    reference: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify a payment reference.
+    """
+    service = PaystackService()
+    try:
+        verification = service.verify_transaction(reference)
+        
+        if verification["status"] == True and verification["data"]["status"] == "success":
+            # Update User Subscription
+            metadata = verification["data"]["metadata"]
+            plan_id = metadata.get("plan_id")
+            
+            if plan_id:
+                # Map plan_id to SubscriptionTier
+                tier_map = {
+                    "day_pass": SubscriptionTier.STARTER,
+                    "free": SubscriptionTier.FREE,
+                    "starter": SubscriptionTier.STARTER,
+                    "professional": SubscriptionTier.PROFESSIONAL,
+                    "agency": SubscriptionTier.AGENCY
+                }
+                
+                if plan_id in tier_map:
+                    current_user.subscription_tier = tier_map[plan_id]
+                    current_user.subscription_status = SubscriptionStatus.ACTIVE
+                    
+                    # Handle Day Pass Expiry (24 hours)
+                    if plan_id == "day_pass":
+                         current_user.trial_ends_at = datetime.utcnow() + timedelta(days=1)
+                    
+                    # Here we would ideally store the Paystack customer/sub codes too
+                    db.commit()
+            
+            return {"status": "success", "data": verification["data"]}
+        else:
+             return {"status": "failed", "message": "Transaction verification failed or pending"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/billing/webhook")
+async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Handle Paystack webhooks
+    """
+    # Verify signature
+    signature = request.headers.get("x-paystack-signature")
+    if not signature:
+        raise HTTPException(status_code=400, detail="No signature")
+    
+    body = await request.body()
+    secret = os.getenv("PAYSTACK_SECRET_KEY", "")
+    
+    if not PaystackWebhookHandler.verify_webhook(body, signature, secret):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    
+    event = await request.json()
+    event_type = event.get("event")
+    data = event.get("data", {})
+    
+    print(f"🔔 Paystack Webhook received: {event_type}")
+    
+    if event_type == "charge.success":
+        # Handle successful charge
+        info = PaystackWebhookHandler.handle_charge_success(data)
+        user_email = info.get("customer_email")
+        
+        if user_email:
+            user = db.query(User).filter(User.email == user_email).first()
+            if user:
+                # Ensure active status
+                if user.subscription_status != SubscriptionStatus.ACTIVE:
+                    user.subscription_status = SubscriptionStatus.ACTIVE
+                    db.commit()
+                    print(f"✅ Activated subscription for {user_email}")
+                    
+    elif event_type == "subscription.disable":
+        # Handle cancellation
+        email = data.get("customer", {}).get("email")
+        if email:
+            user = db.query(User).filter(User.email == email).first()
+            if user:
+                user.subscription_status = SubscriptionStatus.CANCELLED
+                db.commit()
+                print(f"⚠️ Cancelled subscription for {email}")
+
+    return {"status": "received"}
 
 # ============================================================================
 # BRAND MANAGEMENT ENDPOINTS
