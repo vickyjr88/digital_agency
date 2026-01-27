@@ -26,6 +26,15 @@ from core.generator import ContentGenerator
 from config.personas import PERSONAS
 from core.paystack_service import PaystackService, PaystackConfig, PaystackWebhookHandler
 
+# Import marketplace routers (v2 API)
+from routers.influencers import router as influencers_router
+from routers.packages import router as packages_router
+from routers.wallet import router as wallet_router
+from routers.campaigns import router as campaigns_router
+from routers.reviews import router as reviews_router
+from routers.notifications import router as notifications_router
+from routers.disputes import router as disputes_router
+
 load_dotenv()
 
 app = FastAPI(
@@ -121,6 +130,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================================================
+# MARKETPLACE ROUTERS (v2 API)
+# ============================================================================
+# Mount new modular routers under /api/v2 for marketplace features
+# Keeps backward compatibility with existing /api endpoints
+app.include_router(influencers_router, prefix="/api/v2")
+app.include_router(packages_router, prefix="/api/v2")
+app.include_router(wallet_router, prefix="/api/v2")
+app.include_router(campaigns_router, prefix="/api/v2")
+app.include_router(reviews_router, prefix="/api/v2")
+app.include_router(notifications_router, prefix="/api/v2")
+app.include_router(disputes_router, prefix="/api/v2")
 
 # Security
 security = HTTPBearer()

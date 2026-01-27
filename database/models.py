@@ -40,6 +40,14 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     USER = "user"
 
+
+# New enum for marketplace user types
+class UserType(str, enum.Enum):
+    BRAND = "brand"
+    INFLUENCER = "influencer"
+    ADMIN = "admin"
+
+
 class PaymentStatus(str, enum.Enum):
     PENDING = "pending"
     SUCCESS = "success"
@@ -54,6 +62,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255))
     role = Column(Enum(UserRole), default=UserRole.USER)
+    user_type = Column(Enum(UserType), default=UserType.BRAND)  # Marketplace user type
     subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE)
     subscription_status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIAL)
     stripe_customer_id = Column(String(255), unique=True)
