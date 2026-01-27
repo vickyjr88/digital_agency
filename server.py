@@ -45,6 +45,29 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup_event():
+    # Run Alembic migrations automatically on startup
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        
+        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "alembic.ini"))
+        alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "alembic"))
+        
+        # Get DATABASE_URL and escape % for ConfigParser
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            alembic_cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
+        
+        print("🔄 Running database migrations...")
+        command.upgrade(alembic_cfg, "head")
+        print("✅ Database migrations complete!")
+    except Exception as e:
+        print(f"⚠️ Alembic migrations skipped/failed: {e}")
+        # Fall back to SQLAlchemy create_all
+        print("📦 Using SQLAlchemy create_all as fallback...")
+        init_db()
+    
     init_db()
     
     # Seed Admin User and Brands
