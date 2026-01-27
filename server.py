@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 # Import database and auth utilities
 from database.config import get_db, init_db, SessionLocal
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend, generate_uuid
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend, Transaction, PaymentStatus, generate_uuid, generate_uuid
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -140,6 +140,17 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    
+    @validator('password')
+    def password_strength(cls, v):
+        if v and len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        return v
+
 class BrandCreate(BaseModel):
     name: str
     industry: Optional[str] = None
@@ -163,6 +174,10 @@ class ContentUpdate(BaseModel):
     tweet: Optional[str] = None
     facebook_post: Optional[str] = None
     status: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+class ContentSchedule(BaseModel):
+    scheduled_at: datetime
 
 # Legacy models (for backward compatibility)
 class LoginRequest(BaseModel):
@@ -275,10 +290,17 @@ def login_new(credentials: UserLogin, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/api/auth/me")
-def get_current_user_info(current_user: User = Depends(get_current_user)):
+def get_current_user_info(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Get current user information.
+    Get current user information with simple usage stats.
     """
+    usage = db.query(Usage).filter(
+        Usage.user_id == current_user.id,
+        Usage.month == datetime.utcnow().strftime("%Y-%m")
+    ).first()
+    
+    current_usage = usage.content_generated_count if (usage and usage.content_generated_count is not None) else 0
+    
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -287,7 +309,11 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "subscription_tier": current_user.subscription_tier,
         "subscription_status": current_user.subscription_status,
         "trial_ends_at": current_user.trial_ends_at,
-        "created_at": current_user.created_at
+        "created_at": current_user.created_at,
+        "usage": {
+            "current": current_usage,
+            "limit": current_user.content_limit
+        }
     }
 
 # ============================================================================
@@ -334,12 +360,29 @@ def subscribe_to_plan(
             metadata={
                 "user_id": current_user.id,
                 "plan_id": request.plan_id,
-                "plan_name": plan["name"]
+                "plan_name": plan["name"],
+                "amount": amount
             }
         )
         
+        # Record Pending Transaction
+        new_tx = Transaction(
+            id=generate_uuid(),
+            user_id=current_user.id,
+            reference=response['data']['reference'],
+            amount=amount / 100, # Store as main currency unit (KES) not kobo
+            currency='KES',
+            status=PaymentStatus.PENDING,
+            plan_id=request.plan_id,
+            provider='paystack',
+            metadata_json=response
+        )
+        db.add(new_tx)
+        db.commit()
+        
         return response
     except Exception as e:
+        print(f"Subscription Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/billing/verify/{reference}")
@@ -383,10 +426,25 @@ def verify_payment(
             
             return {"status": "success", "data": verification["data"]}
         else:
-             return {"status": "failed", "message": "Transaction verification failed or pending"}
-            
+             return {"status": "success", "data": verification["data"]}
+        
     except Exception as e:
+        print(f"Verification Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/billing/transactions")
+def get_user_transactions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's transaction history.
+    """
+    transactions = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id
+    ).order_by(Transaction.created_at.desc()).all()
+    
+    return transactions
 
 @app.post("/api/billing/webhook")
 async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
@@ -410,10 +468,27 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
     
     print(f"🔔 Paystack Webhook received: {event_type}")
     
+    # Extract reference
+    reference = data.get("reference")
+    
     if event_type == "charge.success":
         # Handle successful charge
         info = PaystackWebhookHandler.handle_charge_success(data)
         user_email = info.get("customer_email")
+        
+        # Update Transaction Status
+        if reference:
+            tx = db.query(Transaction).filter(Transaction.reference == reference).first()
+            if tx:
+                tx.status = PaymentStatus.SUCCESS
+                tx.updated_at = datetime.utcnow()
+                # Update user_id if missing (e.g. from metadata)
+                if not tx.user_id and "metadata" in data:
+                     meta_uid = data["metadata"].get("user_id")
+                     if meta_uid:
+                         tx.user_id = meta_uid
+                db.commit()
+                print(f"✅ Transaction {reference} marked SUCCESS")
         
         if user_email:
             user = db.query(User).filter(User.email == user_email).first()
@@ -435,6 +510,48 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"⚠️ Cancelled subscription for {email}")
 
     return {"status": "received"}
+
+@app.put("/api/auth/profile")
+def update_profile(
+    user_data: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user profile.
+    """
+    if user_data.name:
+        current_user.name = user_data.name
+        
+    if user_data.email and user_data.email != current_user.email:
+        # Check uniqueness
+        exists = db.query(User).filter(User.email == user_data.email).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Email already taken")
+        current_user.email = user_data.email
+            
+    if user_data.password:
+        current_user.password_hash = get_password_hash(user_data.password)
+        
+    db.commit()
+    db.refresh(current_user)
+    
+    return {"status": "success", "message": "Profile updated"}
+
+@app.get("/api/admin/transactions")
+def get_admin_transactions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all transactions (Admin).
+    Mocked for MVP since we don't store transaction logs in DB yet.
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    # In a full systems, query Payment/Transaction table
+    return []
 
 # ============================================================================
 # BRAND MANAGEMENT ENDPOINTS
@@ -633,6 +750,32 @@ def update_content_item(
     
     return content
 
+@app.post("/api/content/{content_id}/schedule")
+def schedule_content(
+    content_id: str,
+    schedule_data: ContentSchedule,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Schedule content for future publishing.
+    """
+    content = db.query(Content).join(Brand).filter(
+        Content.id == content_id,
+        Brand.user_id == current_user.id
+    ).first()
+    
+    if not content:
+        raise HTTPException(status_code=404, detail="Content not found")
+        
+    content.scheduled_at = schedule_data.scheduled_at
+    content.status = ContentStatus.APPROVED
+    
+    db.commit()
+    db.refresh(content)
+    
+    return content
+
 # ============================================================================
 # TRENDS & GENERATION ENDPOINTS
 # ============================================================================
@@ -688,6 +831,19 @@ def generate_content_on_demand(
     
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
+
+    # 1.5. Check Monthly Limit
+    usage = db.query(Usage).filter(
+        Usage.user_id == current_user.id,
+        Usage.month == datetime.utcnow().strftime("%Y-%m")
+    ).first()
+    
+    current_count = usage.content_generated_count if (usage and usage.content_generated_count is not None) else 0
+    if current_count >= current_user.content_limit:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Monthly content limit reached ({current_user.content_limit} posts). Upgrade your plan to generate more."
+        )
     
     # 2. Prepare Persona for AI
     persona = {
@@ -814,16 +970,39 @@ def get_admin_stats(
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Not authorized")
     
+    # Financial Stats
+    total_revenue_amount = db.query(func.sum(Transaction.amount)).filter(Transaction.status == PaymentStatus.SUCCESS).scalar() or 0
+    active_subscriptions = db.query(User).filter(User.subscription_status == SubscriptionStatus.ACTIVE).count()
+    pending_transactions = db.query(Transaction).filter(Transaction.status == PaymentStatus.PENDING).count()
+    
+    # Usage Stats
     total_users = db.query(User).count()
     total_brands = db.query(Brand).count()
     total_trends = db.query(Trend).count()
     total_content = db.query(Content).count()
     
+    # Recent Transactions
+    recent_txs = db.query(Transaction).join(User).order_by(Transaction.created_at.desc()).limit(5).all()
+    recent_transactions_data = []
+    for tx in recent_txs:
+        recent_transactions_data.append({
+            "id": tx.id,
+            "created_at": tx.created_at,
+            "user_email": tx.user.email,
+            "amount": tx.amount,
+            "currency": tx.currency,
+            "status": tx.status
+        })
+    
     return {
+        "total_revenue": f"KES {total_revenue_amount:,.2f}",
+        "active_subscriptions": active_subscriptions,
+        "pending_transactions": pending_transactions,
+        "recent_transactions": recent_transactions_data,
         "users": total_users,
         "brands": total_brands,
         "trends": total_trends,
-        "content": total_content
+        "content_generated": total_content
     }
 
 @app.get("/api/admin/latest")

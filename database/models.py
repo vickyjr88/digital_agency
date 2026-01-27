@@ -40,6 +40,11 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     USER = "user"
 
+class PaymentStatus(str, enum.Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
+
 # Models
 class User(Base):
     __tablename__ = "users"
@@ -60,6 +65,18 @@ class User(Base):
     brands = relationship("Brand", back_populates="user", cascade="all, delete-orphan")
     usage = relationship("Usage", back_populates="user", cascade="all, delete-orphan")
     team_memberships = relationship("TeamMember", back_populates="user", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def content_limit(self):
+        from database.models import SubscriptionTier
+        limits = {
+            SubscriptionTier.FREE: 5,
+            SubscriptionTier.STARTER: 100,
+            SubscriptionTier.PROFESSIONAL: 500,
+            SubscriptionTier.AGENCY: 2000
+        }
+        return limits.get(self.subscription_tier, 5)
 
 class Brand(Base):
     __tablename__ = "brands"
@@ -111,6 +128,7 @@ class Content(Base):
     status = Column(Enum(ContentStatus), default=ContentStatus.PENDING)
     generated_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime)
+    scheduled_at = Column(DateTime)
     published_at = Column(DateTime)
     meta_data = Column(JSON)  # Analytics, engagement data (renamed from metadata to avoid SQLAlchemy conflict)
     
@@ -150,3 +168,21 @@ class TeamMember(Base):
     # Relationships
     user = relationship("User", back_populates="team_memberships")
     brand = relationship("Brand", back_populates="team_members")
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    reference = Column(String(100), unique=True, nullable=False)
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(3), default="KES")
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
+    plan_id = Column(String(50))
+    provider = Column(String(20), default="paystack")
+    metadata_json = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="transactions")
