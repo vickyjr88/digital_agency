@@ -6,11 +6,11 @@ from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
-from database.marketplace_models import Notification, NotificationTypeDB
+from database.marketplace_models import Notification
 
 
 class NotificationType(str, Enum):
-    """Notification types matching NotificationTypeDB."""
+    """Notification types - stored as string in database."""
     CAMPAIGN_REQUEST = "campaign_request"
     CAMPAIGN_ACCEPTED = "campaign_accepted"
     CAMPAIGN_REJECTED = "campaign_rejected"
@@ -58,35 +58,31 @@ class NotificationService:
             type: Notification type (use NotificationType enum)
             title: Short notification title
             message: Full notification message
-            action_url: Optional URL for the notification action
+            action_url: Optional URL for the notification action (stored in data)
             data: Optional additional data as JSON
         
         Returns:
             The created Notification object
         """
-        # Convert string type to NotificationTypeDB enum
-        if isinstance(type, str):
-            try:
-                type_db = NotificationTypeDB(type)
-            except ValueError:
-                type_db = NotificationTypeDB.SYSTEM
-        else:
-            try:
-                type_db = NotificationTypeDB(type.value)
-            except ValueError:
-                type_db = NotificationTypeDB.SYSTEM
+        # Convert enum to string value
+        type_str = type.value if isinstance(type, NotificationType) else str(type)
+        
+        # Merge action_url into data
+        notification_data = data or {}
+        if action_url:
+            notification_data["action_url"] = action_url
         
         notification = Notification(
             user_id=user_id,
-            type=type_db,
+            type=type_str,
             title=title,
             message=message,
-            action_url=action_url,
-            data=data or {},
+            data=notification_data,
         )
         self.db.add(notification)
         self.db.flush()  # Get the ID without committing
         return notification
+
     
     def create_batch(
         self,
@@ -137,7 +133,7 @@ class NotificationService:
         ).first()
         
         if notification:
-            notification.is_read = True
+            notification.read = True
             notification.read_at = datetime.utcnow()
             return True
         return False
@@ -151,9 +147,9 @@ class NotificationService:
         """
         count = self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.is_read == False
+            Notification.read == False
         ).update({
-            "is_read": True,
+            "read": True,
             "read_at": datetime.utcnow()
         })
         return count
@@ -162,7 +158,7 @@ class NotificationService:
         """Get unread notification count for a user."""
         return self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.is_read == False
+            Notification.read == False
         ).count()
     
     # =========================================================================
