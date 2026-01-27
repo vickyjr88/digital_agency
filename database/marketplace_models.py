@@ -263,7 +263,7 @@ class WalletTransaction(Base):
     # Relationships
     from_wallet = relationship("Wallet", foreign_keys=[from_wallet_id], back_populates="sent_transactions")
     to_wallet = relationship("Wallet", foreign_keys=[to_wallet_id], back_populates="received_transactions")
-    escrow_holds = relationship("EscrowHold", back_populates="transaction")
+    escrow_holds = relationship("EscrowHold", foreign_keys="EscrowHold.transaction_id", back_populates="transaction")
 
 
 # ============================================================================
