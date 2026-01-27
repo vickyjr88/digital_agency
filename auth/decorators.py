@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database.config import get_db
 from database.models import User, UserRole
 from auth.roles import UserType, Permission, has_permission, has_any_permission
+from auth.dependencies import get_current_user
 
 
 class AuthError(HTTPException):
@@ -29,7 +30,7 @@ def require_user_type(*allowed_types: UserType):
         ):
             ...
     """
-    async def dependency(current_user: User) -> User:
+    async def dependency(current_user: User = Depends(get_current_user)) -> User:
         # Convert user_type string to enum if needed
         user_type = current_user.user_type if hasattr(current_user, 'user_type') else None
         
@@ -70,7 +71,7 @@ def require_permission(*permissions: Permission):
         ):
             ...
     """
-    async def dependency(current_user: User) -> User:
+    async def dependency(current_user: User = Depends(get_current_user)) -> User:
         user_type = _get_user_type(current_user)
         
         if not has_any_permission(user_type, list(permissions)):
@@ -93,7 +94,7 @@ def require_admin():
         async def get_stats(user: User = Depends(require_admin())):
             ...
     """
-    async def dependency(current_user: User) -> User:
+    async def dependency(current_user: User = Depends(get_current_user)) -> User:
         # Check both the old role field and new user_type field
         is_admin = False
         
@@ -131,7 +132,7 @@ def require_verified_influencer():
         ):
             ...
     """
-    async def dependency(current_user: User, db: Session = Depends(get_db)) -> User:
+    async def dependency(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
         from database.models import InfluencerProfile  # Import here to avoid circular
         
         user_type = _get_user_type(current_user)
@@ -177,7 +178,7 @@ def require_brand_owner(brand_id_param: str = "brand_id"):
             ...
     """
     async def dependency(
-        current_user: User, 
+        current_user: User = Depends(get_current_user), 
         db: Session = Depends(get_db),
         **kwargs
     ) -> User:
