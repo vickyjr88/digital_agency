@@ -833,11 +833,11 @@ class GenerateRequest(BaseModel):
 @app.get("/api/trends")
 def get_trends(
     limit: int = 20,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Get latest trends from the database.
+    This is a public endpoint for the landing page.
     """
     from core.trend_service import TrendService
     service = TrendService(db)
