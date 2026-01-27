@@ -292,7 +292,7 @@ class EscrowHold(Base):
     
     # Relationships
     transaction = relationship("WalletTransaction", foreign_keys=[transaction_id], back_populates="escrow_holds")
-    campaign = relationship("Campaign", foreign_keys=[campaign_id], back_populates="escrow")
+    # Note: campaign relationship is one-way due to circular FK
 
 
 # ============================================================================
@@ -333,7 +333,7 @@ class Campaign(Base):
     brand = relationship("User", backref="brand_campaigns")
     influencer = relationship("InfluencerProfile", back_populates="campaigns")
     package = relationship("Package", back_populates="campaigns")
-    escrow = relationship("EscrowHold", back_populates="campaign", foreign_keys=[escrow_id])
+    escrow = relationship("EscrowHold", foreign_keys=[escrow_id], uselist=False)  # One-to-one
     deliverables = relationship("Deliverable", back_populates="campaign", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="campaign", cascade="all, delete-orphan")
     disputes = relationship("Dispute", back_populates="campaign", cascade="all, delete-orphan")
