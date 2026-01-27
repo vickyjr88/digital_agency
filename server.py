@@ -825,26 +825,27 @@ def generate_content_on_demand(
     Generate content for a specific brand and trend.
     """
     # 1. Verify Brand Ownership
-    brand = db.query(Brand).filter(
-        Brand.id == brand_id,
-        Brand.user_id == current_user.id
-    ).first()
+    query = db.query(Brand).filter(Brand.id == brand_id)
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Brand.user_id == current_user.id)
+    brand = query.first()
     
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    # 1.5. Check Monthly Limit
-    usage = db.query(Usage).filter(
-        Usage.user_id == current_user.id,
-        Usage.month == datetime.utcnow().strftime("%Y-%m")
-    ).first()
-    
-    current_count = usage.content_generated_count if (usage and usage.content_generated_count is not None) else 0
-    if current_count >= current_user.content_limit:
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Monthly content limit reached ({current_user.content_limit} posts). Upgrade your plan to generate more."
-        )
+    # 1.5. Check Monthly Limit (Exempt Admins)
+    if current_user.role != UserRole.ADMIN:
+        usage = db.query(Usage).filter(
+            Usage.user_id == current_user.id,
+            Usage.month == datetime.utcnow().strftime("%Y-%m")
+        ).first()
+        
+        current_count = usage.content_generated_count if (usage and usage.content_generated_count is not None) else 0
+        if current_count >= current_user.content_limit:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Monthly content limit reached ({current_user.content_limit} posts). Upgrade your plan to generate more."
+            )
     
     # 2. Prepare Persona for AI
     persona = {
