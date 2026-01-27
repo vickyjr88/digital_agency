@@ -18,6 +18,7 @@ class SubscriptionTier(str, enum.Enum):
     STARTER = "starter"
     PROFESSIONAL = "professional"
     AGENCY = "agency"
+    DAY_PASS = "day_pass"
 
 class SubscriptionStatus(str, enum.Enum):
     ACTIVE = "active"

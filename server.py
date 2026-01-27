@@ -525,11 +525,27 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         if user_email:
             user = db.query(User).filter(User.email == user_email).first()
             if user:
-                # Ensure active status
-                if user.subscription_status != SubscriptionStatus.ACTIVE:
-                    user.subscription_status = SubscriptionStatus.ACTIVE
-                    db.commit()
-                    print(f"✅ Activated subscription for {user_email}")
+                # Ensure active status and update tier
+                user.subscription_status = SubscriptionStatus.ACTIVE
+                
+                # Check metadata for plan info
+                if "metadata" in data:
+                    plan_name = data["metadata"].get("plan_name", "").lower()
+                    
+                    # Map plan names to tiers
+                    if "day pass" in plan_name or "day_pass" in plan_name:
+                        user.subscription_tier = SubscriptionTier.DAY_PASS
+                        # Set 24 hour expiry
+                        user.trial_ends_at = datetime.utcnow() + timedelta(hours=24)
+                    elif "starter" in plan_name:
+                        user.subscription_tier = SubscriptionTier.STARTER
+                    elif "professional" in plan_name:
+                        user.subscription_tier = SubscriptionTier.PROFESSIONAL
+                    elif "agency" in plan_name:
+                        user.subscription_tier = SubscriptionTier.AGENCY
+                
+                db.commit()
+                print(f"✅ Activated subscription for {user_email} to {user.subscription_tier}")
                     
     elif event_type == "subscription.disable":
         # Handle cancellation
@@ -960,6 +976,122 @@ def get_all_users(
         )
     users = db.query(User).all()
     return users
+
+
+class SubscriptionUpdate(BaseModel):
+    subscription_tier: Optional[str] = None  # FREE, DAY_PASS, STARTER, PROFESSIONAL, AGENCY
+    subscription_status: Optional[str] = None  # ACTIVE, INACTIVE, CANCELLED, EXPIRED
+
+
+@app.put("/api/admin/users/{user_id}/subscription")
+def update_user_subscription(
+    user_id: str,
+    update: SubscriptionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user subscription (Admin only).
+    Use this to manually upgrade users who paid but weren't upgraded.
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Update subscription tier
+    if update.subscription_tier:
+        try:
+            tier = SubscriptionTier(update.subscription_tier.upper())
+            user.subscription_tier = tier
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid tier. Must be one of: {[t.value for t in SubscriptionTier]}"
+            )
+    
+    # Update subscription status
+    if update.subscription_status:
+        try:
+            status_val = SubscriptionStatus(update.subscription_status.upper())
+            user.subscription_status = status_val
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Must be one of: {[s.value for s in SubscriptionStatus]}"
+            )
+    
+    # For Day Pass, set trial_ends_at to 24 hours from now
+    if update.subscription_tier and update.subscription_tier.upper() == "DAY_PASS":
+        user.trial_ends_at = datetime.utcnow() + timedelta(hours=24)
+    
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "message": "Subscription updated successfully",
+        "user_id": user.id,
+        "email": user.email,
+        "subscription_tier": user.subscription_tier.value if user.subscription_tier else None,
+        "subscription_status": user.subscription_status.value if user.subscription_status else None,
+        "trial_ends_at": user.trial_ends_at.isoformat() if user.trial_ends_at else None
+    }
+
+
+@app.get("/api/admin/users/{user_id}/transactions")
+def get_user_transactions(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all transactions for a specific user (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    transactions = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.created_at.desc()).all()
+    
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "subscription_tier": user.subscription_tier.value if user.subscription_tier else None,
+            "subscription_status": user.subscription_status.value if user.subscription_status else None,
+        },
+        "transactions": [
+            {
+                "id": t.id,
+                "amount": t.amount,
+                "currency": t.currency,
+                "status": t.status.value if t.status else None,
+                "payment_reference": t.payment_reference,
+                "plan": t.plan,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in transactions
+        ]
+    }
+
 
 # ============================================================================
 # LEGACY ENDPOINTS (Backward Compatibility)
