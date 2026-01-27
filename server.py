@@ -138,24 +138,11 @@ def startup_event():
     scheduler.start()
     print("✅ Scheduler started: Trends will refresh every hour.")
 
-# CORS Setup - Allow all origins for API accessibility
-# List specific origins for credential support, plus catch-all for public endpoints
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-    "https://dexter.vitaldigitalmedia.net",
-    "https://dexter-api.vitaldigitalmedia.net",
-    "https://vitaldigitalmedia.net",
-]
-
+# CORS Setup - Allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vitaldigitalmedia\.net",  # Allow all subdomains
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # Required when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
