@@ -138,21 +138,30 @@ def startup_event():
     scheduler.start()
     print("✅ Scheduler started: Trends will refresh every hour.")
 
-# CORS Setup
+# CORS Setup - Allow all origins for API accessibility
+# List specific origins for credential support, plus catch-all for public endpoints
 origins = [
-    "http://localhost:5173",  # Vite default
+    "http://localhost:5173",
     "http://localhost:3000",
     "http://localhost:8000",
-    "*"
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "https://dexter.vitaldigitalmedia.net",
+    "https://dexter-api.vitaldigitalmedia.net",
+    "https://vitaldigitalmedia.net",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vitaldigitalmedia\.net",  # Allow all subdomains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
 
 # ============================================================================
 # MARKETPLACE ROUTERS (v2 API)
@@ -839,9 +848,14 @@ def get_trends(
     Get latest trends from the database.
     This is a public endpoint for the landing page.
     """
-    from core.trend_service import TrendService
-    service = TrendService(db)
-    return service.get_latest_trends(limit)
+    try:
+        from core.trend_service import TrendService
+        service = TrendService(db)
+        return service.get_latest_trends(limit)
+    except Exception as e:
+        # Return empty list if trends table doesn't exist or other error
+        print(f"⚠️ Trends error: {e}")
+        return []
 
 @app.post("/api/trends/refresh")
 def refresh_trends(
