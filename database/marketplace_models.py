@@ -292,7 +292,7 @@ class EscrowHold(Base):
     
     # Relationships
     transaction = relationship("WalletTransaction", foreign_keys=[transaction_id], back_populates="escrow_holds")
-    campaign = relationship("Campaign", back_populates="escrow")
+    campaign = relationship("Campaign", foreign_keys=[campaign_id], back_populates="escrow")
 
 
 # ============================================================================
