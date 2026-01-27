@@ -18,7 +18,7 @@ class PaystackConfig:
     PLANS = {
         "day_pass": {
             "name": "Day Pass",
-            "amount": 500,  # KES 29
+            "amount": 2900,  # KES 29
             "interval": "daily",
             "brands": 1,
             "content_limit": 5,
