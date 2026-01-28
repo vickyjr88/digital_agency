@@ -1017,7 +1017,7 @@ def update_user_subscription(
     # Update subscription tier
     if update.subscription_tier:
         try:
-            tier = SubscriptionTier(update.subscription_tier.upper())
+            tier = SubscriptionTier(update.subscription_tier.lower())
             user.subscription_tier = tier
         except ValueError:
             raise HTTPException(
@@ -1028,7 +1028,7 @@ def update_user_subscription(
     # Update subscription status
     if update.subscription_status:
         try:
-            status_val = SubscriptionStatus(update.subscription_status.upper())
+            status_val = SubscriptionStatus(update.subscription_status.lower())
             user.subscription_status = status_val
         except ValueError:
             raise HTTPException(
@@ -1037,7 +1037,7 @@ def update_user_subscription(
             )
     
     # For Day Pass, set trial_ends_at to 24 hours from now
-    if update.subscription_tier and update.subscription_tier.upper() == "DAY_PASS":
+    if update.subscription_tier and update.subscription_tier.lower() == "day_pass":
         user.trial_ends_at = datetime.utcnow() + timedelta(hours=24)
     
     db.commit()

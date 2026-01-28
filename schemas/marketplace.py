@@ -22,6 +22,7 @@ class PlatformType(str, Enum):
     TIKTOK = "tiktok"
     YOUTUBE = "youtube"
     TWITTER = "twitter"
+    FACEBOOK = "facebook"
     MULTI = "multi"
 
 
@@ -134,6 +135,22 @@ class InfluencerProfileCreate(BaseModel):
     tiktok_handle: Optional[str] = None
     youtube_channel: Optional[str] = None
     twitter_handle: Optional[str] = None
+    facebook_handle: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    
+    # Social Media Links
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
+    youtube_link: Optional[str] = None
+    twitter_link: Optional[str] = None
+    facebook_link: Optional[str] = None
+    
+    # Followers (optional initial entry)
+    instagram_followers: Optional[int] = 0
+    tiktok_followers: Optional[int] = 0
+    youtube_subscribers: Optional[int] = 0
+    twitter_followers: Optional[int] = 0
+    facebook_followers: Optional[int] = 0
 
 
 class InfluencerProfileUpdate(BaseModel):
@@ -142,6 +159,13 @@ class InfluencerProfileUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     niche: Optional[str] = Field(None, max_length=100)
     location: Optional[str] = Field(None, max_length=100)
+    whatsapp_number: Optional[str] = Field(None, max_length=20)
+    facebook_handle: Optional[str] = None
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
+    youtube_link: Optional[str] = None
+    twitter_link: Optional[str] = None
+    facebook_link: Optional[str] = None
     profile_picture_url: Optional[str] = None
 
 
@@ -160,6 +184,16 @@ class InfluencerProfileResponse(BaseModel):
     tiktok: Optional[SocialMediaStats] = None
     youtube: Optional[SocialMediaStats] = None
     twitter: Optional[SocialMediaStats] = None
+    facebook: Optional[SocialMediaStats] = None
+    
+    whatsapp_number: Optional[str] = None
+    
+    # Social Media Links
+    instagram_link: Optional[str] = None
+    tiktok_link: Optional[str] = None
+    youtube_link: Optional[str] = None
+    twitter_link: Optional[str] = None
+    facebook_link: Optional[str] = None
     
     # Reputation
     rating: float = 0.0

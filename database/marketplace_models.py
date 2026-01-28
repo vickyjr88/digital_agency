@@ -152,6 +152,25 @@ class InfluencerProfile(Base):
     twitter_verified = Column(Boolean, default=False)
     twitter_connected_at = Column(DateTime)
     twitter_access_token = Column(String(500))  # Encrypted
+
+    # Facebook
+    facebook_handle = Column(String(100))
+    facebook_id = Column(String(100))
+    facebook_followers = Column(Integer, default=0)
+    facebook_engagement_rate = Column(Float, default=0.0)
+    facebook_verified = Column(Boolean, default=False)
+    facebook_connected_at = Column(DateTime)
+    facebook_access_token = Column(String(500))  # Encrypted
+
+    # Contact
+    whatsapp_number = Column(String(20))
+    
+    # Social Media Links
+    instagram_link = Column(String(500))
+    tiktok_link = Column(String(500))
+    youtube_link = Column(String(500))
+    twitter_link = Column(String(500))
+    facebook_link = Column(String(500))
     
     # Reputation
     rating = Column(Float, default=0.0)

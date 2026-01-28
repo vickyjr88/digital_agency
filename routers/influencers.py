@@ -61,6 +61,23 @@ async def onboard_as_influencer(
         tiktok_handle=profile_data.tiktok_handle,
         youtube_channel=profile_data.youtube_channel,
         twitter_handle=profile_data.twitter_handle,
+        facebook_handle=profile_data.facebook_handle,
+        whatsapp_number=profile_data.whatsapp_number,
+        
+        # Social Media Links
+        instagram_link=profile_data.instagram_link,
+        tiktok_link=profile_data.tiktok_link,
+        youtube_link=profile_data.youtube_link,
+        twitter_link=profile_data.twitter_link,
+        facebook_link=profile_data.facebook_link,
+        
+        # Initial follower counts
+        instagram_followers=profile_data.instagram_followers or 0,
+        tiktok_followers=profile_data.tiktok_followers or 0,
+        youtube_subscribers=profile_data.youtube_subscribers or 0,
+        twitter_followers=profile_data.twitter_followers or 0,
+        facebook_followers=profile_data.facebook_followers or 0,
+        
         verification_status=VerificationStatus.PENDING,
     )
     
@@ -236,6 +253,8 @@ async def search_influencers(
             base_query = base_query.filter(InfluencerProfile.youtube_channel.isnot(None))
         elif platform == PlatformType.TWITTER:
             base_query = base_query.filter(InfluencerProfile.twitter_handle.isnot(None))
+        elif platform == PlatformType.FACEBOOK:
+            base_query = base_query.filter(InfluencerProfile.facebook_handle.isnot(None))
     
     # Follower count filter (across all platforms)
     if min_followers is not None:
@@ -245,6 +264,7 @@ async def search_influencers(
                 InfluencerProfile.tiktok_followers >= min_followers,
                 InfluencerProfile.youtube_subscribers >= min_followers,
                 InfluencerProfile.twitter_followers >= min_followers,
+                InfluencerProfile.facebook_followers >= min_followers,
             )
         )
     
@@ -267,6 +287,10 @@ async def search_influencers(
                     InfluencerProfile.twitter_followers <= max_followers,
                     InfluencerProfile.twitter_handle.isnot(None)
                 ),
+                and_(
+                    InfluencerProfile.facebook_followers <= max_followers,
+                    InfluencerProfile.facebook_handle.isnot(None)
+                ),
             )
         )
     
@@ -279,7 +303,8 @@ async def search_influencers(
             (InfluencerProfile.instagram_followers + 
              InfluencerProfile.tiktok_followers + 
              InfluencerProfile.youtube_subscribers + 
-             InfluencerProfile.twitter_followers).desc()
+             InfluencerProfile.twitter_followers +
+             InfluencerProfile.facebook_followers).desc()
         )
     # price_low and price_high would require joining with packages
     
@@ -511,6 +536,23 @@ def _profile_to_response(profile: InfluencerProfile) -> InfluencerProfileRespons
             verified=profile.twitter_verified or False,
             connected_at=profile.twitter_connected_at,
         ) if profile.twitter_handle else None,
+        
+        facebook=SocialMediaStats(
+            handle=profile.facebook_handle,
+            followers=profile.facebook_followers or 0,
+            engagement_rate=profile.facebook_engagement_rate or 0.0,
+            verified=profile.facebook_verified or False,
+            connected_at=profile.facebook_connected_at,
+        ) if profile.facebook_handle else None,
+        
+        whatsapp_number=profile.whatsapp_number,
+        
+        # Social Media Links
+        instagram_link=profile.instagram_link,
+        tiktok_link=profile.tiktok_link,
+        youtube_link=profile.youtube_link,
+        twitter_link=profile.twitter_link,
+        facebook_link=profile.facebook_link,
         
         # Reputation
         rating=profile.rating or 0.0,
