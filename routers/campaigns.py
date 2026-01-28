@@ -81,7 +81,7 @@ async def create_campaign(
     if available < package.price:
         raise HTTPException(
             status_code=400,
-            detail=f"Insufficient wallet balance. Required: KES {package.price}, Available: KES {available}"
+            detail=f"Insufficient wallet balance. Required: KES {package.price / 100}, Available: KES {available / 100}"
         )
     
     # Create escrow lock transaction

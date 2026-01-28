@@ -1054,7 +1054,7 @@ def update_user_subscription(
 
 
 @app.get("/api/admin/users/{user_id}/transactions")
-def get_user_transactions(
+def get_admin_user_transactions(
     user_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -1091,8 +1091,8 @@ def get_user_transactions(
                 "amount": t.amount,
                 "currency": t.currency,
                 "status": t.status.value if t.status else None,
-                "payment_reference": t.payment_reference,
-                "plan": t.plan,
+                "payment_reference": t.reference,
+                "plan_id": t.plan_id,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in transactions

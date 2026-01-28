@@ -55,7 +55,7 @@ async def create_package(
         platform=PlatformTypeDB(package_data.platform.value) if package_data.platform else None,
         content_type=package_data.content_type.value,
         deliverables_count=package_data.deliverables_count,
-        price=package_data.price,
+        price=package_data.price * 100,  # Convert KES to cents
         currency="KES",  # Default to KES for now
         timeline_days=package_data.timeline_days,
         revisions_included=package_data.revisions_included,
@@ -168,6 +168,8 @@ async def update_package(
             value = PackageStatusDB(value.value)
         elif field == "requirements" and value:
             value = value.model_dump() if hasattr(value, 'model_dump') else value
+        elif field == "price" and value:
+            value = value * 100  # Convert KES to cents
         setattr(package, field, value)
     
     package.updated_at = datetime.utcnow()

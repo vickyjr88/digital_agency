@@ -170,6 +170,8 @@ class InfluencerProfileResponse(BaseModel):
     is_verified: bool = False
     verification_status: VerificationStatus = VerificationStatus.PENDING
     
+    contact_email: Optional[str] = None
+    
     created_at: datetime
     updated_at: Optional[datetime]
     

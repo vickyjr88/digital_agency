@@ -116,9 +116,9 @@ async def initiate_deposit(
         # Create pending transaction record
         transaction = WalletTransaction(
             to_wallet_id=wallet.id,
-            amount=deposit_data.amount,
+            amount=amount_kobo,
             fee=0,
-            net_amount=deposit_data.amount,
+            net_amount=amount_kobo,
             transaction_type=WalletTransactionTypeDB.DEPOSIT,
             status=WalletTransactionStatusDB.PENDING,
             payment_method="paystack",
@@ -178,7 +178,6 @@ async def verify_deposit(
         if wallet:
             # Credit wallet
             wallet.balance += transaction.amount
-            wallet.total_spent += transaction.amount  # Track deposits for brands
             
             # Update transaction
             transaction.status = WalletTransactionStatusDB.COMPLETED
@@ -214,25 +213,26 @@ async def request_withdrawal(
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
     
+    # Calculate fee (if any)
+    amount_cents = withdraw_data.amount * 100
+    fee_cents = 0  # Could add withdrawal fee here
+    net_amount_cents = amount_cents - fee_cents
+    
     # Check available balance (excluding held funds)
     available_balance = wallet.balance - wallet.hold_balance
     
-    if withdraw_data.amount > available_balance:
+    if amount_cents > available_balance:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient balance. Available: KES {available_balance}"
+            detail=f"Insufficient balance. Available: KES {available_balance / 100}"
         )
-    
-    # Calculate fee (if any)
-    fee = 0  # Could add withdrawal fee here
-    net_amount = withdraw_data.amount - fee
     
     # Create withdrawal transaction (pending admin approval)
     transaction = WalletTransaction(
         from_wallet_id=wallet.id,
-        amount=withdraw_data.amount,
-        fee=fee,
-        net_amount=net_amount,
+        amount=amount_cents,
+        fee=fee_cents,
+        net_amount=net_amount_cents,
         transaction_type=WalletTransactionTypeDB.WITHDRAWAL,
         status=WalletTransactionStatusDB.PENDING,
         payment_method=withdraw_data.payment_method,
@@ -242,7 +242,7 @@ async def request_withdrawal(
     db.add(transaction)
     
     # Hold the withdrawal amount
-    wallet.hold_balance += withdraw_data.amount
+    wallet.hold_balance += amount_cents
     
     db.commit()
     db.refresh(transaction)

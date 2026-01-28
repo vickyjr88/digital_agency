@@ -521,6 +521,8 @@ def _profile_to_response(profile: InfluencerProfile) -> InfluencerProfileRespons
         is_verified=profile.is_verified or False,
         verification_status=VerificationStatus(profile.verification_status.value) if profile.verification_status else VerificationStatus.PENDING,
         
+        contact_email=profile.user.email if profile.user else None,
+        
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )
