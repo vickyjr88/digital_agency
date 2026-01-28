@@ -82,9 +82,11 @@ async def initiate_deposit(
     Initiate a deposit to wallet via Paystack.
     Returns Paystack authorization URL.
     """
+    print(f"DEBUG: Initiating deposit for user {current_user.id}, amount {deposit_data.amount}")
     # Get or create wallet
     wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
     if not wallet:
+        print(f"DEBUG: Creating new wallet for user {current_user.id}")
         wallet = Wallet(user_id=current_user.id)
         db.add(wallet)
         db.commit()
@@ -94,7 +96,9 @@ async def initiate_deposit(
     amount_kobo = deposit_data.amount * 100  # Convert to kobo/cents
     
     try:
+        print("DEBUG: Initializing Paystack Service")
         service = PaystackService()
+        print(f"DEBUG: Sending request to Paystack for {current_user.email}, {amount_kobo}")
         response = service.initialize_transaction(
             email=current_user.email,
             amount=amount_kobo,
@@ -106,6 +110,7 @@ async def initiate_deposit(
                 "amount": deposit_data.amount
             }
         )
+        print(f"DEBUG: Paystack Response: {response}")
         
         # Create pending transaction record
         transaction = WalletTransaction(
@@ -131,6 +136,9 @@ async def initiate_deposit(
         }
         
     except Exception as e:
+        import traceback
+        print(f"ERROR: Failed to initialize deposit: {e}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to initialize deposit: {str(e)}"
