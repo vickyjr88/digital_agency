@@ -129,9 +129,9 @@ class PaystackService:
         self,
         email: str,
         amount: int,
-        plan_id: str,
-        user_id: str,
         callback_url: str,
+        plan_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
@@ -140,31 +140,38 @@ class PaystackService:
         Args:
             email: Customer's email
             amount: Amount in kobo (cents)
-            plan_id: Subscription plan ID
-            user_id: Internal user ID
             callback_url: URL to redirect after payment
+            plan_id: Subscription plan ID (optional)
+            user_id: Internal user ID (optional)
             metadata: Additional transaction metadata
         
         Returns:
             Transaction initialization response with authorization_url
         """
+        # Build metadata
+        payload_metadata = {}
+        if user_id:
+            payload_metadata["user_id"] = user_id
+        if plan_id:
+            payload_metadata["plan_id"] = plan_id
+            payload_metadata["custom_fields"] = [
+                {
+                    "display_name": "Plan",
+                    "variable_name": "plan",
+                    "value": plan_id
+                }
+            ]
+        
+        # Add additional metadata
+        if metadata:
+            payload_metadata.update(metadata)
+
         data = {
             "email": email,
             "amount": amount,
             "currency": PaystackConfig.CURRENCY,
             "callback_url": callback_url,
-            "metadata": {
-                "user_id": user_id,
-                "plan_id": plan_id,
-                "custom_fields": [
-                    {
-                        "display_name": "Plan",
-                        "variable_name": "plan",
-                        "value": plan_id
-                    }
-                ],
-                **(metadata or {})
-            }
+            "metadata": payload_metadata
         }
         
         return self._make_request("POST", "/transaction/initialize", data)

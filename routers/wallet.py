@@ -102,6 +102,7 @@ async def initiate_deposit(
         response = service.initialize_transaction(
             email=current_user.email,
             amount=amount_kobo,
+            user_id=current_user.id,
             callback_url=deposit_data.callback_url or "https://dexter.vitaldigitalmedia.net/wallet/callback",
             metadata={
                 "type": "wallet_deposit",
