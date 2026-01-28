@@ -9,7 +9,7 @@ from datetime import datetime
 
 from database.config import get_db
 from database.models import User
-from database.marketplace_models import InfluencerProfile, Package, PackageStatusDB
+from database.marketplace_models import InfluencerProfile, Package, PackageStatusDB, PlatformTypeDB
 from schemas.marketplace import (
     PackageCreate,
     PackageUpdate,
@@ -52,7 +52,7 @@ async def create_package(
         influencer_id=profile.id,
         name=package_data.name,
         description=package_data.description,
-        platform=PackageStatusDB(package_data.platform.value) if package_data.platform else None,
+        platform=PlatformTypeDB(package_data.platform.value) if package_data.platform else None,
         content_type=package_data.content_type.value,
         deliverables_count=package_data.deliverables_count,
         price=package_data.price,

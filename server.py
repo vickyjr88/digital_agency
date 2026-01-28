@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # Import database and auth utilities
 from database.config import get_db, init_db, SessionLocal
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, Usage, Trend, Transaction, PaymentStatus, generate_uuid, generate_uuid
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, UserType, Usage, Trend, Transaction, PaymentStatus, generate_uuid
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -161,6 +161,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     name: str
+    user_type: Optional[str] = "brand" # brand or influencer
     
     @validator('password')
     def password_strength(cls, v):
@@ -176,6 +177,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
+    user_type: Optional[str] = None
     
     @validator('password')
     def password_strength(cls, v):
@@ -284,6 +286,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
         email=user_data.email,
         password_hash=hashed_password,
         name=user_data.name,
+        user_type=user_data.user_type or UserType.BRAND,
         subscription_tier=SubscriptionTier.FREE,
         subscription_status=SubscriptionStatus.TRIAL,
         trial_ends_at=datetime.utcnow() + timedelta(days=14)
@@ -338,6 +341,7 @@ def get_current_user_info(current_user: User = Depends(get_current_user), db: Se
         "email": current_user.email,
         "name": current_user.name,
         "role": current_user.role,
+        "user_type": current_user.user_type,
         "subscription_tier": current_user.subscription_tier,
         "subscription_status": current_user.subscription_status,
         "trial_ends_at": current_user.trial_ends_at,
@@ -580,6 +584,9 @@ def update_profile(
             
     if user_data.password:
         current_user.password_hash = get_password_hash(user_data.password)
+
+    if user_data.user_type:
+        current_user.user_type = user_data.user_type
         
     db.commit()
     db.refresh(current_user)

@@ -214,7 +214,7 @@ class PackageCreate(BaseModel):
     platform: PlatformType
     content_type: ContentTypeEnum
     deliverables_count: int = Field(..., ge=1, le=20)
-    price: int = Field(..., ge=500)  # Minimum 500 KES
+    price: int = Field(..., ge=10)  # Minimum 10 KSH
     timeline_days: int = Field(..., ge=1, le=60)
     revisions_included: int = Field(2, ge=0, le=5)
     requirements: Optional[PackageRequirements] = None
@@ -225,7 +225,7 @@ class PackageUpdate(BaseModel):
     """Schema for updating a package."""
     name: Optional[str] = Field(None, min_length=5, max_length=200)
     description: Optional[str] = Field(None, min_length=20, max_length=2000)
-    price: Optional[int] = Field(None, ge=500)
+    price: Optional[int] = Field(None, ge=10)
     timeline_days: Optional[int] = Field(None, ge=1, le=60)
     revisions_included: Optional[int] = Field(None, ge=0, le=5)
     requirements: Optional[PackageRequirements] = None
@@ -280,13 +280,13 @@ class WalletResponse(BaseModel):
 
 class DepositRequest(BaseModel):
     """Schema for deposit request."""
-    amount: int = Field(..., ge=100)  # Minimum 100 KES
+    amount: int = Field(..., ge=10)  # Minimum 10 KES
     callback_url: Optional[str] = None
 
 
 class WithdrawRequest(BaseModel):
     """Schema for withdrawal request."""
-    amount: int = Field(..., ge=100)  # Minimum 100 KES
+    amount: int = Field(..., ge=10)  # Minimum 10 KES
     payment_method: str = "bank_transfer"  # bank_transfer, mpesa
 
 
