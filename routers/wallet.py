@@ -12,7 +12,8 @@ from database.config import get_db
 from database.models import User, UserType
 from database.marketplace_models import (
     Wallet, WalletTransaction, EscrowHold, PaymentMethod,
-    WalletTransactionTypeDB, WalletTransactionStatusDB, EscrowStatusDB
+    WalletTransactionTypeDB, WalletTransactionStatusDB, EscrowStatusDB,
+    Notification
 )
 from schemas.marketplace import (
     WalletResponse,
