@@ -31,18 +31,7 @@ def require_user_type(*allowed_types: UserType):
             ...
     """
     async def dependency(current_user: User = Depends(get_current_user)) -> User:
-        # Convert user_type string to enum if needed
-        user_type = current_user.user_type if hasattr(current_user, 'user_type') else None
-        
-        if user_type is None:
-            # Default to BRAND for backward compatibility
-            user_type = UserType.BRAND
-        
-        if isinstance(user_type, str):
-            try:
-                user_type = UserType(user_type)
-            except ValueError:
-                user_type = UserType.BRAND
+        user_type = _get_user_type(current_user)
         
         # Admin can access everything
         if user_type == UserType.ADMIN:
