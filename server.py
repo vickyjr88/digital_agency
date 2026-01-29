@@ -563,8 +563,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                             user_id=wallet.user_id,
                             title="Wallet Deposited",
                             message=f"Your deposit of KES {wallet_tx.amount / 100:,.2f} was successful.",
-                            notification_type="wallet",
-                            is_read=False
+                            type="wallet",
+                            read=False
                         )
                         db.add(notif)
             
@@ -631,8 +631,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                         user_id=wallet.user_id,
                         title="Withdrawal Processed",
                         message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} has been successfully processed to your account.",
-                        notification_type="wallet",
-                        is_read=False
+                        type="wallet",
+                        read=False
                     )
                     db.add(notif)
                     
@@ -663,8 +663,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                         user_id=wallet.user_id,
                         title="Withdrawal Failed",
                         message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} failed and funds have been returned to your wallet.",
-                        notification_type="wallet",
-                        is_read=False
+                        type="wallet",
+                        read=False
                     )
                     db.add(notif)
                 

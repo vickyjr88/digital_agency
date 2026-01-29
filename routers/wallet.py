@@ -575,8 +575,8 @@ async def manual_fund_wallet(
         user_id=request.user_id,
         title="Wallet Funded Manually",
         message=f"Admin has manually credited your wallet with KES {request.amount:,.2f}. Reason: {request.description}",
-        notification_type="wallet",
-        is_read=False
+        type="wallet",
+        read=False
     )
     db.add(notif)
     

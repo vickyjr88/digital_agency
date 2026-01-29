@@ -278,8 +278,8 @@ async def process_withdrawal(
             user_id=user.id,
             title="Withdrawal Processed",
             message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} has been processed.",
-            notification_type="wallet",
-            is_read=False
+            type="wallet",
+            read=False
         )
         db.add(notification)
     
@@ -334,8 +334,8 @@ async def reject_withdrawal(
             user_id=user.id,
             title="Withdrawal Rejected",
             message=f"Your withdrawal request was rejected. Reason: {request.reason}. Funds have been returned to your wallet.",
-            notification_type="wallet",
-            is_read=False
+            type="wallet",
+            read=False
         )
         db.add(notification)
     
