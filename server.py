@@ -1291,8 +1291,11 @@ def get_admin_stats(
     
     # Recent Transactions (Mix of Subscriptions and Wallet Transactions)
     recent_subscription_txs = db.query(Transaction).join(User).order_by(Transaction.created_at.desc()).limit(10).all()
-    recent_wallet_txs = db.query(WalletTransaction).join(Wallet).join(
-         User, Wallet.user_id == User.id
+    
+    # Eager load relationships to avoid N+1 queries
+    recent_wallet_txs = db.query(WalletTransaction).options(
+        joinedload(WalletTransaction.from_wallet).joinedload(Wallet.user),
+        joinedload(WalletTransaction.to_wallet).joinedload(Wallet.user)
     ).order_by(WalletTransaction.created_at.desc()).limit(10).all()
 
     combined_txs = []
@@ -1355,6 +1358,53 @@ def get_admin_stats(
         },
         "content": total_content,
         "recent_transactions": recent_transactions_data
+    }
+
+@app.get("/api/admin/orders")
+def get_admin_orders(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    status_filter: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN and current_user.user_type != UserType.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = db.query(Transaction).join(User)
+    
+    # Filter by status if provided (success, pending, failed)
+    if status_filter:
+        try:
+            status_enum = PaymentStatus(status_filter.lower())
+            query = query.filter(Transaction.status == status_enum)
+        except ValueError:
+            pass # Ignore invalid status
+            
+    total = query.count()
+    
+    offset = (page - 1) * limit
+    transactions = query.order_by(Transaction.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "orders": [
+            {
+                "id": t.id,
+                "created_at": t.created_at,
+                "amount": t.amount,
+                "currency": t.currency,
+                "status": t.status.value if t.status else None,
+                "payment_reference": t.reference,
+                "plan_id": t.plan_id,
+                "user_email": t.user.email,
+                "user_name": t.user.name
+            }
+            for t in transactions
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit
     }
 
 @app.get("/api/admin/latest")

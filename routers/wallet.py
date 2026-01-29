@@ -277,8 +277,8 @@ async def request_withdrawal(
         "message": "Withdrawal request submitted. Processing within 24-48 hours.",
         "transaction_id": transaction.id,
         "amount": withdraw_data.amount,
-        "fee": fee,
-        "net_amount": net_amount
+        "fee": fee_cents / 100,
+        "net_amount": net_amount_cents / 100
     }
 
 
@@ -587,4 +587,69 @@ async def manual_fund_wallet(
         "message": f"Successfully funded wallet with KES {request.amount:,.2f}",
         "new_balance": wallet.balance,
         "transaction_id": transaction.id
+    }
+
+
+@router.get("/admin/transactions")
+async def get_all_transactions_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    type: Optional[str] = None,
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN)),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all wallet transactions (Admin only).
+    """
+    query = db.query(WalletTransaction)
+    
+    if type:
+        try:
+            type_enum = WalletTransactionTypeDB(type.lower())
+            query = query.filter(WalletTransaction.transaction_type == type_enum)
+        except ValueError:
+            pass
+            
+    total = query.count()
+    
+    offset = (page - 1) * limit
+    transactions = query.order_by(WalletTransaction.created_at.desc()).offset(offset).limit(limit).all()
+    
+    result = []
+    for t in transactions:
+        # Determine user email/name from wallet
+        user_info = {"email": "Unknown", "name": "Unknown"}
+        
+        target_wallet = None
+        if t.to_wallet_id:
+            target_wallet = db.query(Wallet).filter(Wallet.id == t.to_wallet_id).first()
+        elif t.from_wallet_id:
+            target_wallet = db.query(Wallet).filter(Wallet.id == t.from_wallet_id).first()
+            
+        if target_wallet and target_wallet.user_id:
+             user = db.query(User).filter(User.id == target_wallet.user_id).first()
+             if user:
+                 user_info = {"email": user.email, "name": user.name}
+        
+        result.append({
+            "id": t.id,
+            "created_at": t.created_at,
+            "amount": t.amount,
+            "net_amount": t.net_amount,
+            "fee": t.fee,
+            "transaction_type": t.transaction_type.value,
+            "status": t.status.value,
+            "description": t.description,
+            "user_email": user_info["email"],
+            "user_name": user_info["name"]
+        })
+        
+    return {
+        "transactions": result,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit
+        }
     }
