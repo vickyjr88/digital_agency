@@ -41,7 +41,7 @@ from config.app_config import PLATFORM_FEE_PERCENT, ESCROW_AUTO_RELEASE_DAYS
 async def create_campaign(
     campaign_data: CampaignCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.ADMIN))
+    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN))
 ):
     """
     Create a new campaign by purchasing a package.
@@ -52,17 +52,36 @@ async def create_campaign(
         Package.id == campaign_data.package_id,
         Package.status == PackageStatusDB.ACTIVE
     ).first()
-    
     if not package:
         raise HTTPException(status_code=404, detail="Package not found or not available")
-    
+
     # Get influencer profile
     influencer = db.query(InfluencerProfile).filter(
         InfluencerProfile.id == package.influencer_id
     ).first()
-    
     if not influencer:
         raise HTTPException(status_code=404, detail="Influencer not found")
+
+    # Determine who is creating the campaign and validate ownership
+    if current_user.user_type == UserTypeRole.BRAND:
+        # Brands can create campaigns for their own brands (existing logic)
+        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+    elif current_user.user_type == UserTypeRole.INFLUENCER:
+        # Influencers can only create campaigns for brands they own/are associated with
+        # Check if influencer owns the brand_entity_id (if provided)
+        # For now, assume influencer can only use their own user_id as brand_id
+        if campaign_data.brand_entity_id and campaign_data.brand_entity_id != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Influencers can only create campaigns for their own brands.")
+        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+    else:
+        # Admins can create for any brand
+        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+
+    if not brand_wallet:
+        raise HTTPException(
+            status_code=400, 
+            detail="Please set up your wallet and deposit funds first"
+        )
     
     # Get brand's wallet
     brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
