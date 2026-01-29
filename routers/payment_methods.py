@@ -13,7 +13,8 @@ import re
 from database.config import get_db
 from database.models import User, UserTypeRole
 from database.marketplace_models import Wallet, PaymentMethod, PaymentMethodType
-from auth.decorators import get_current_user, require_user_type
+from auth.dependencies import get_current_user
+from auth.decorators import require_user_type
 
 router = APIRouter(prefix="/payment-methods", tags=["Payment Methods"])
 

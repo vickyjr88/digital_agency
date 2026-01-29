@@ -18,7 +18,8 @@ from database.marketplace_models import (
     Wallet, WalletTransaction, WalletTransactionTypeDB, 
     WalletTransactionStatusDB, PaymentMethod, Notification
 )
-from auth.decorators import get_current_user, require_user_type
+from auth.dependencies import get_current_user
+from auth.decorators import require_user_type
 
 router = APIRouter(prefix="/admin/withdrawals", tags=["Admin - Withdrawals"])
 

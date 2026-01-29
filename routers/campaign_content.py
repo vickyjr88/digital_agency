@@ -16,7 +16,8 @@ from database.marketplace_models import (
     Campaign, CampaignContent, CampaignContentStatus,
     Bid, BidStatusDB, InfluencerProfile
 )
-from auth.utils import get_current_user, require_user_type
+from auth.dependencies import get_current_user
+from auth.decorators import require_user_type
 from core.generator import ContentGenerator
 
 router = APIRouter(prefix="/campaign-content", tags=["Campaign Content"])

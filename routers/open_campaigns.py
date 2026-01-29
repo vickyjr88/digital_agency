@@ -18,7 +18,8 @@ from database.marketplace_models import (
     WalletTransactionTypeDB, WalletTransactionStatusDB,
     EscrowHold, EscrowStatusDB
 )
-from auth.decorators import get_current_user, require_user_type
+from auth.dependencies import get_current_user
+from auth.decorators import require_user_type
 from auth.roles import UserType
 
 router = APIRouter(prefix="/open-campaigns", tags=["Open Campaigns"])
