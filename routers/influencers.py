@@ -185,6 +185,97 @@ async def get_my_influencer_stats(
 
 
 # ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@router.get("/admin", response_model=dict)
+async def get_all_influencers_admin(
+    query: Optional[str] = Query(None, description="Search query"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get all influencers for admin dashboard."""
+    base_query = db.query(InfluencerProfile)
+    
+    if query:
+        search_term = f"%{query}%"
+        base_query = base_query.filter(
+            or_(
+                InfluencerProfile.display_name.ilike(search_term),
+                InfluencerProfile.bio.ilike(search_term),
+                InfluencerProfile.niche.ilike(search_term),
+            )
+        )
+    
+    total = base_query.count()
+    offset = (page - 1) * limit
+    profiles = base_query.order_by(InfluencerProfile.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "influencers": [_profile_to_response(p) for p in profiles],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        }
+    }
+
+
+@router.get("/admin/pending", response_model=list)
+async def get_pending_influencers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get list of influencers pending verification (Admin only)."""
+    profiles = db.query(InfluencerProfile).filter(
+        InfluencerProfile.verification_status == VerificationStatus.PENDING
+    ).order_by(InfluencerProfile.created_at.desc()).all()
+    
+    return [_profile_to_response(p) for p in profiles]
+
+
+@router.put("/admin/{influencer_id}/verify", response_model=InfluencerProfileResponse)
+async def verify_influencer(
+    influencer_id: str,
+    action: str = Query(..., description="approve or reject"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Approve or reject an influencer's verification (Admin only)."""
+    profile = db.query(InfluencerProfile).filter(
+        InfluencerProfile.id == influencer_id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Influencer not found"
+        )
+    
+    if action == "approve":
+        profile.verification_status = VerificationStatus.APPROVED
+        profile.is_verified = True
+        profile.identity_verified_at = datetime.utcnow()
+    elif action == "reject":
+        profile.verification_status = VerificationStatus.REJECTED
+        profile.is_verified = False
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Action must be 'approve' or 'reject'"
+        )
+    
+    profile.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(profile)
+    
+    return _profile_to_response(profile)
+
+
+# ============================================================================
 # PUBLIC ENDPOINTS (Marketplace)
 # ============================================================================
 
