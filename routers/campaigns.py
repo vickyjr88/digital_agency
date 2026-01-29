@@ -114,6 +114,7 @@ async def create_campaign(
     # Create campaign
     campaign = Campaign(
         brand_id=current_user.id,
+        brand_entity_id=campaign_data.brand_entity_id,
         influencer_id=influencer.id,
         package_id=package.id,
         escrow_id=escrow.id,

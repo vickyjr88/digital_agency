@@ -371,6 +371,7 @@ class CampaignBrief(BaseModel):
 class CampaignCreate(BaseModel):
     """Schema for creating a campaign (purchasing a package)."""
     package_id: str
+    brand_entity_id: Optional[str] = None
     brief: CampaignBrief
     custom_requirements: Optional[str] = None
 
