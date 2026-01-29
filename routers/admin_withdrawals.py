@@ -258,7 +258,7 @@ async def process_withdrawal(
         withdrawal.status = WalletTransactionStatusDB.PROCESSING
         # We don't deduct balance yet, it stays in hold_balance
     else:
-        withdrawal.status = WalletTransactionStatusDB.SUCCESS
+        withdrawal.status = WalletTransactionStatusDB.COMPLETED
         withdrawal.completed_at = datetime.utcnow()
         # Release the hold on the wallet and deduct balance
         wallet.hold_balance -= withdrawal.amount
@@ -375,7 +375,7 @@ async def get_withdrawal_stats(
         func.sum(WalletTransaction.net_amount)
     ).filter(
         WalletTransaction.transaction_type == WalletTransactionTypeDB.WITHDRAWAL,
-        WalletTransaction.status == WalletTransactionStatusDB.SUCCESS,
+        WalletTransaction.status == WalletTransactionStatusDB.COMPLETED,
         WalletTransaction.completed_at >= first_day
     ).first()
     
@@ -385,7 +385,7 @@ async def get_withdrawal_stats(
         func.sum(WalletTransaction.net_amount)
     ).filter(
         WalletTransaction.transaction_type == WalletTransactionTypeDB.WITHDRAWAL,
-        WalletTransaction.status == WalletTransactionStatusDB.SUCCESS
+        WalletTransaction.status == WalletTransactionStatusDB.COMPLETED
     ).first()
     
     return {

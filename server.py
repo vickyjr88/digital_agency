@@ -586,8 +586,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 WalletTransaction.transaction_type == WalletTransactionTypeDB.WITHDRAWAL
             ).first()
             
-            if withdrawal and withdrawal.status != WalletTransactionStatusDB.SUCCESS:
-                withdrawal.status = WalletTransactionStatusDB.SUCCESS
+            if withdrawal and withdrawal.status != WalletTransactionStatusDB.COMPLETED:
+                withdrawal.status = WalletTransactionStatusDB.COMPLETED
                 withdrawal.completed_at = datetime.utcnow()
                 
                 # Release the hold and deduct balance

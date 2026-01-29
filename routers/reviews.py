@@ -144,7 +144,10 @@ async def get_influencer_reviews(
     Get reviews for an influencer profile (public endpoint).
     """
     influencer = db.query(InfluencerProfile).filter(
-        InfluencerProfile.id == influencer_id
+        or_(
+            InfluencerProfile.id == influencer_id,
+            InfluencerProfile.user_id == influencer_id
+        )
     ).first()
     
     if not influencer:

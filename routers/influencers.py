@@ -246,7 +246,10 @@ async def verify_influencer(
 ):
     """Approve or reject an influencer's verification (Admin only)."""
     profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.id == influencer_id
+        or_(
+            InfluencerProfile.id == influencer_id,
+            InfluencerProfile.user_id == influencer_id
+        )
     ).first()
     
     if not profile:
@@ -462,8 +465,12 @@ async def get_influencer_profile(
     db: Session = Depends(get_db),
 ):
     """Get a public influencer profile by ID."""
+    # Try fetching by InfluencerProfile.id first, then fallback to user_id
     profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.id == influencer_id
+        or_(
+            InfluencerProfile.id == influencer_id,
+            InfluencerProfile.user_id == influencer_id
+        )
     ).first()
     
     if not profile:
@@ -489,7 +496,10 @@ async def get_influencer_packages(
 ):
     """Get all active packages for an influencer."""
     profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.id == influencer_id
+        or_(
+            InfluencerProfile.id == influencer_id,
+            InfluencerProfile.user_id == influencer_id
+        )
     ).first()
     
     if not profile:
@@ -499,7 +509,7 @@ async def get_influencer_packages(
         )
     
     packages = db.query(Package).filter(
-        Package.influencer_id == influencer_id,
+        Package.influencer_id == profile.id,
         Package.status == "active"
     ).all()
     
@@ -587,7 +597,10 @@ async def verify_influencer(
 ):
     """Approve or reject an influencer's verification (Admin only)."""
     profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.id == influencer_id
+        or_(
+            InfluencerProfile.id == influencer_id,
+            InfluencerProfile.user_id == influencer_id
+        )
     ).first()
     
     if not profile:
