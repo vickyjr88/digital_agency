@@ -23,6 +23,7 @@ from auth.decorators import require_user_type
 from auth.roles import UserType
 
 router = APIRouter(prefix="/open-campaigns", tags=["Open Campaigns"])
+MIN_CAMPAIGN_BUDGET = 100  # Minimum budget in cents (configurable)
 
 
 # ============================================================================
@@ -80,11 +81,17 @@ async def create_open_campaign(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new open campaign for influencers to bid on."""
+
+    if request.budget < MIN_CAMPAIGN_BUDGET:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Minimum budget is KES {MIN_CAMPAIGN_BUDGET / 100:.0f}"
+        )
     
-    # Verify brand ownership
+    # Verify brand ownership    
     brand = db.query(Brand).filter(
         Brand.id == request.brand_id,
-        Brand.owner_id == current_user.id
+        Brand.user_id == current_user.id
     ).first()
     
     if not brand:
