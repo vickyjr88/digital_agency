@@ -88,14 +88,16 @@ def require_admin():
         is_admin = False
         
         # Check legacy role field
-        if hasattr(current_user, 'role') and current_user.role == UserRole.ADMIN:
-            is_admin = True
+        if hasattr(current_user, 'role') and current_user.role:
+            role_val = str(current_user.role).lower()
+            if role_val == "admin":
+                is_admin = True
         
         # Check new user_type field
-        if hasattr(current_user, 'user_type'):
+        if not is_admin and hasattr(current_user, 'user_type') and current_user.user_type:
             user_type = current_user.user_type
             if isinstance(user_type, str):
-                is_admin = user_type == "admin"
+                is_admin = user_type.lower() == "admin"
             elif isinstance(user_type, UserType):
                 is_admin = user_type == UserType.ADMIN
         
@@ -205,15 +207,16 @@ def require_brand_owner(brand_id_param: str = "brand_id"):
 def _get_user_type(user: User) -> UserType:
     """Helper to extract UserType from User object with backward compatibility."""
     # Legacy: Check if admin via role field first
-    # This prevents the default user_type="brand" from overriding the admin role
-    if hasattr(user, 'role') and user.role == UserRole.ADMIN:
-        return UserType.ADMIN
+    if hasattr(user, 'role') and user.role:
+        role_val = str(user.role).lower()
+        if role_val == "admin":
+            return UserType.ADMIN
 
     if hasattr(user, 'user_type') and user.user_type:
         user_type = user.user_type
         if isinstance(user_type, str):
             try:
-                return UserType(user_type)
+                return UserType(user_type.lower())
             except ValueError:
                 pass
         elif isinstance(user_type, UserType):
