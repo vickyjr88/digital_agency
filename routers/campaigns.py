@@ -596,6 +596,85 @@ async def raise_dispute(
 
 
 # ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@router.get("/admin", response_model=dict)
+async def get_all_campaigns_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get all campaigns for admin dashboard."""
+    query = db.query(Campaign)
+    total = query.count()
+    offset = (page - 1) * limit
+    campaigns = query.order_by(Campaign.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "campaigns": [_campaign_to_response(c, db) for c in campaigns],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        }
+    }
+
+
+@router.post("/admin/{campaign_id}/resolve-dispute")
+async def resolve_dispute(
+    campaign_id: str,
+    decision: str = Query(..., description="refund_brand or pay_influencer"),
+    resolution_notes: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """
+    Resolve a campaign dispute (Admin only).
+    """
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    if campaign.status != CampaignStatusDB.DISPUTED:
+        raise HTTPException(status_code=400, detail="Campaign is not disputed")
+        
+    # Get dispute record - assuming one active dispute per campaign for MVP
+    from database.marketplace_models import Dispute, DisputeStatusDB
+    dispute = db.query(Dispute).filter(
+        Dispute.campaign_id == campaign_id,
+        Dispute.status == DisputeStatusDB.OPEN
+    ).first()
+    
+    if decision == "refund_brand":
+        _release_escrow(campaign, db, refund=True)
+        campaign.status = CampaignStatusDB.CANCELLED
+        if dispute:
+            dispute.status = DisputeStatusDB.RESOLVED_REFUND
+            dispute.resolution_notes = resolution_notes
+            dispute.resolved_at = datetime.utcnow()
+            dispute.resolved_by = current_user.id
+            
+    elif decision == "pay_influencer":
+        _release_escrow(campaign, db, refund=False)
+        campaign.status = CampaignStatusDB.COMPLETED
+        if dispute:
+            dispute.status = DisputeStatusDB.RESOLVED_PAYOUT
+            dispute.resolution_notes = resolution_notes
+            dispute.resolved_at = datetime.utcnow()
+            dispute.resolved_by = current_user.id
+            
+    else:
+        raise HTTPException(status_code=400, detail="Invalid decision")
+        
+    db.commit()
+    return {"status": "resolved", "decision": decision}
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 

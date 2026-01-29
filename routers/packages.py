@@ -300,6 +300,46 @@ async def activate_package(
 
 
 # ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@router.get("/admin", response_model=dict)
+async def get_all_packages_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get all packages for admin dashboard."""
+    query = db.query(Package)
+    total = query.count()
+    offset = (page - 1) * limit
+    packages = query.order_by(Package.created_at.desc()).offset(offset).limit(limit).all()
+    
+    # Get influencer profiles for packages
+    influencer_ids = list(set(p.influencer_id for p in packages))
+    profiles = db.query(InfluencerProfile).filter(
+        InfluencerProfile.id.in_(influencer_ids)
+    ).all()
+    profiles_map = {p.id: p for p in profiles}
+    
+    results = []
+    for package in packages:
+        profile = profiles_map.get(package.influencer_id)
+        results.append(_package_to_response(package, profile))
+
+    return {
+        "packages": results,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        }
+    }
+
+
+# ============================================================================
 # MARKETPLACE ENDPOINTS (Browse Packages)
 # ============================================================================
 

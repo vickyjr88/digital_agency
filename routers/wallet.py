@@ -360,6 +360,44 @@ async def get_escrow_holds(
 # ADMIN ENDPOINTS
 # ============================================================================
 
+@router.get("/admin/transactions", response_model=dict)
+async def get_all_transactions_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get all transactions for admin dashboard."""
+    query = db.query(WalletTransaction)
+    total = query.count()
+    offset = (page - 1) * limit
+    transactions = query.order_by(WalletTransaction.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "transactions": [
+            TransactionResponse(
+                id=t.id,
+                from_wallet_id=t.from_wallet_id,
+                to_wallet_id=t.to_wallet_id,
+                amount=t.amount,
+                fee=t.fee or 0,
+                net_amount=t.net_amount,
+                transaction_type=TransactionType(t.transaction_type.value),
+                status=TransactionStatus(t.status.value),
+                external_id=t.external_id,
+                description=t.description,
+                created_at=t.created_at,
+                completed_at=t.completed_at
+            ) for t in transactions
+        ],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        }
+    }
+
 @router.get("/admin/pending-withdrawals")
 async def get_pending_withdrawals(
     db: Session = Depends(get_db),

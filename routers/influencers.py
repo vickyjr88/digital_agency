@@ -438,6 +438,42 @@ async def get_influencer_packages(
 # ADMIN ENDPOINTS
 # ============================================================================
 
+@router.get("/admin", response_model=dict)
+async def get_all_influencers_admin(
+    query: Optional[str] = Query(None, description="Search query"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Get all influencers for admin dashboard."""
+    base_query = db.query(InfluencerProfile)
+    
+    if query:
+        search_term = f"%{query}%"
+        base_query = base_query.filter(
+            or_(
+                InfluencerProfile.display_name.ilike(search_term),
+                InfluencerProfile.bio.ilike(search_term),
+                InfluencerProfile.niche.ilike(search_term),
+            )
+        )
+    
+    total = base_query.count()
+    offset = (page - 1) * limit
+    profiles = base_query.order_by(InfluencerProfile.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "influencers": [_profile_to_response(p) for p in profiles],
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": (total + limit - 1) // limit,
+        }
+    }
+
+
 @router.get("/admin/pending", response_model=list)
 async def get_pending_influencers(
     db: Session = Depends(get_db),
