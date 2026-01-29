@@ -204,6 +204,11 @@ def require_brand_owner(brand_id_param: str = "brand_id"):
 
 def _get_user_type(user: User) -> UserType:
     """Helper to extract UserType from User object with backward compatibility."""
+    # Legacy: Check if admin via role field first
+    # This prevents the default user_type="brand" from overriding the admin role
+    if hasattr(user, 'role') and user.role == UserRole.ADMIN:
+        return UserType.ADMIN
+
     if hasattr(user, 'user_type') and user.user_type:
         user_type = user.user_type
         if isinstance(user_type, str):
@@ -213,10 +218,6 @@ def _get_user_type(user: User) -> UserType:
                 pass
         elif isinstance(user_type, UserType):
             return user_type
-    
-    # Legacy: Check if admin via role field
-    if hasattr(user, 'role') and user.role == UserRole.ADMIN:
-        return UserType.ADMIN
     
     # Default to brand for backward compatibility
     return UserType.BRAND
