@@ -18,7 +18,7 @@ from database.marketplace_models import (
     WalletTransactionTypeDB, WalletTransactionStatusDB,
     EscrowHold, EscrowStatusDB
 )
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, get_optional_current_user
 from auth.decorators import require_user_type
 from auth.roles import UserType
 
@@ -148,7 +148,7 @@ async def list_open_campaigns(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     """List open campaigns. Influencers see all open, Brands see their own."""
     
@@ -158,12 +158,14 @@ async def list_open_campaigns(
     )
     
     # Check if user is influencer
-    influencer_profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.user_id == current_user.id
-    ).first()
+    influencer_profile = None
+    if current_user:
+        influencer_profile = db.query(InfluencerProfile).filter(
+            InfluencerProfile.user_id == current_user.id
+        ).first()
     
-    if influencer_profile:
-        # Influencers see all open campaigns
+    if not current_user or influencer_profile:
+        # Public or Influencers see all open campaigns
         query = query.filter(Campaign.status == CampaignStatusDB.OPEN)
     else:
         # Brands see their own campaigns

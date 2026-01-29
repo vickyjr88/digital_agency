@@ -63,3 +63,23 @@ async def get_current_user(
         )
     
     return user
+
+
+security_optional = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Return user if authenticated, else None."""
+    if not credentials:
+        return None
+    
+    token = credentials.credentials
+    token_data = decode_access_token(token)
+    
+    if token_data is None:
+        return None
+    
+    return db.query(User).filter(User.email == token_data.email).first()
