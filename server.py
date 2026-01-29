@@ -527,21 +527,51 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
         # Handle successful charge
         info = PaystackWebhookHandler.handle_charge_success(data)
         user_email = info.get("customer_email")
+        metadata = info.get("metadata", {})
+        is_wallet_deposit = metadata.get("type") == "wallet_deposit"
         
-        # Update Transaction Status
+        # Update Transaction Status (Legacy/Subscription Table)
         if reference:
             tx = db.query(Transaction).filter(Transaction.reference == reference).first()
             if tx:
                 tx.status = PaymentStatus.SUCCESS
                 tx.updated_at = datetime.utcnow()
                 # Update user_id if missing (e.g. from metadata)
-                if not tx.user_id and "metadata" in data:
-                     meta_uid = data["metadata"].get("user_id")
-                     if meta_uid:
-                         tx.user_id = meta_uid
+                if not tx.user_id and "user_id" in metadata:
+                     tx.user_id = metadata.get("user_id")
                 db.commit()
                 print(f"✅ Transaction {reference} marked SUCCESS")
         
+        # Handle Wallet Deposit (Marketplace Table)
+        if is_wallet_deposit:
+            if reference:
+                wallet_tx = db.query(WalletTransaction).filter(
+                    WalletTransaction.external_id == reference
+                ).first()
+                
+                if wallet_tx and wallet_tx.status != WalletTransactionStatusDB.COMPLETED:
+                    wallet_tx.status = WalletTransactionStatusDB.COMPLETED
+                    wallet_tx.completed_at = datetime.utcnow()
+                    
+                    wallet = db.query(Wallet).filter(Wallet.id == wallet_tx.to_wallet_id).first()
+                    if wallet:
+                        wallet.balance += wallet_tx.amount
+                        print(f"✅ Credited wallet {wallet.id} with {wallet_tx.amount} from deposit {reference}")
+                        
+                        # Notify user
+                        notif = Notification(
+                            user_id=wallet.user_id,
+                            title="Wallet Deposited",
+                            message=f"Your deposit of KES {wallet_tx.amount / 100:,.2f} was successful.",
+                            notification_type="wallet",
+                            is_read=False
+                        )
+                        db.add(notif)
+            
+            db.commit()
+            return {"status": "success", "message": "Wallet deposit processed"}
+
+        # Handle Subscriptions (If not a wallet deposit)
         if user_email:
             user = db.query(User).filter(User.email == user_email).first()
             if user:
@@ -549,8 +579,8 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 user.subscription_status = SubscriptionStatus.ACTIVE
                 
                 # Check metadata for plan info
-                if "metadata" in data:
-                    plan_name = data["metadata"].get("plan_name", "").lower()
+                if "plan_name" in metadata:
+                    plan_name = metadata.get("plan_name", "").lower()
                     
                     # Map plan names to tiers
                     if "day pass" in plan_name or "day_pass" in plan_name:
