@@ -13,7 +13,8 @@ import os
 import httpx
 
 from database.config import get_db
-from database.models import User, UserTypeRole
+from database.models import User
+from auth.roles import UserType as UserTypeRole
 from database.marketplace_models import (
     Wallet, WalletTransaction, WalletTransactionTypeDB, 
     WalletTransactionStatusDB, PaymentMethod, Notification

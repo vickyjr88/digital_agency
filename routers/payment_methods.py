@@ -11,7 +11,8 @@ from datetime import datetime
 import re
 
 from database.config import get_db
-from database.models import User, UserTypeRole
+from database.models import User
+from auth.roles import UserType as UserTypeRole
 from database.marketplace_models import Wallet, PaymentMethod, PaymentMethodType
 from auth.dependencies import get_current_user
 from auth.decorators import require_user_type
