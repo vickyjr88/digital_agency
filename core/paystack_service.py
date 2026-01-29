@@ -426,7 +426,10 @@ class PaystackWebhookHandler:
         "subscription.enable",
         "invoice.create",
         "invoice.payment_failed",
-        "invoice.update"
+        "invoice.update",
+        "transfer.success",
+        "transfer.failed",
+        "transfer.reversed"
     ]
     
     @staticmethod
@@ -486,4 +489,27 @@ class PaystackWebhookHandler:
             "subscription_code": data.get("subscription_code"),
             "customer_email": data.get("customer", {}).get("email"),
             "status": "cancelled"
+        }
+
+    @staticmethod
+    def handle_transfer_success(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle successful transfer (withdrawal) webhook"""
+        return {
+            "event": "transfer.success",
+            "transfer_code": data.get("transfer_code"),
+            "reference": data.get("reference"),
+            "amount": data.get("amount"),
+            "status": "success",
+            "transferred_at": data.get("transferred_at")
+        }
+
+    @staticmethod
+    def handle_transfer_failed(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle failed transfer (withdrawal) webhook"""
+        return {
+            "event": "transfer.failed",
+            "transfer_code": data.get("transfer_code"),
+            "reference": data.get("reference"),
+            "reason": data.get("reason"),
+            "status": "failed"
         }

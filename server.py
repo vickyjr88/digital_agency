@@ -21,6 +21,10 @@ from auth.utils import (
     decode_access_token,
     Token
 )
+from database.marketplace_models import (
+    Wallet, WalletTransaction, WalletTransactionTypeDB, 
+    WalletTransactionStatusDB, Notification
+)
 from core.sheets_handler import SheetsHandler
 from core.generator import ContentGenerator
 from config.personas import PERSONAS
@@ -572,6 +576,70 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 user.subscription_status = SubscriptionStatus.CANCELLED
                 db.commit()
                 print(f"⚠️ Cancelled subscription for {email}")
+    
+    elif event_type == "transfer.success":
+        # Handle successful withdrawal
+        transfer_code = data.get("transfer_code")
+        if transfer_code:
+            withdrawal = db.query(WalletTransaction).filter(
+                WalletTransaction.external_id == transfer_code,
+                WalletTransaction.transaction_type == WalletTransactionTypeDB.WITHDRAWAL
+            ).first()
+            
+            if withdrawal and withdrawal.status != WalletTransactionStatusDB.SUCCESS:
+                withdrawal.status = WalletTransactionStatusDB.SUCCESS
+                withdrawal.completed_at = datetime.utcnow()
+                
+                # Release the hold and deduct balance
+                wallet = db.query(Wallet).filter(Wallet.id == withdrawal.from_wallet_id).first()
+                if wallet:
+                    wallet.hold_balance -= withdrawal.amount
+                    wallet.balance -= withdrawal.amount
+                    
+                    # Notify user
+                    notif = Notification(
+                        user_id=wallet.user_id,
+                        title="Withdrawal Processed",
+                        message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} has been successfully processed to your account.",
+                        notification_type="wallet",
+                        is_read=False
+                    )
+                    db.add(notif)
+                    
+                db.commit()
+                print(f"✅ Withdrawal {transfer_code} marked SUCCESS and balance deducted")
+                
+    elif event_type in ["transfer.failed", "transfer.reversed"]:
+        # Handle failed withdrawal (refund to available balance)
+        transfer_code = data.get("transfer_code")
+        if transfer_code:
+            withdrawal = db.query(WalletTransaction).filter(
+                WalletTransaction.external_id == transfer_code,
+                WalletTransaction.transaction_type == WalletTransactionTypeDB.WITHDRAWAL
+            ).first()
+            
+            if withdrawal and withdrawal.status == WalletTransactionStatusDB.PROCESSING:
+                withdrawal.status = WalletTransactionStatusDB.FAILED
+                
+                # Release the hold (balance already includes it, so just decrement hold_balance)
+                wallet = db.query(Wallet).filter(Wallet.id == withdrawal.from_wallet_id).first()
+                if wallet:
+                    wallet.hold_balance -= withdrawal.amount
+                    # available balance (balance - hold_balance) increases automatically
+                
+                # Notify user
+                if wallet and wallet.user_id:
+                    notif = Notification(
+                        user_id=wallet.user_id,
+                        title="Withdrawal Failed",
+                        message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} failed and funds have been returned to your wallet.",
+                        notification_type="wallet",
+                        is_read=False
+                    )
+                    db.add(notif)
+                
+                db.commit()
+                print(f"❌ Withdrawal {transfer_code} marked FAILED and hold released")
 
     return {"status": "received"}
 

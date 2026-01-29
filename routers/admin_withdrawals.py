@@ -252,8 +252,16 @@ async def process_withdrawal(
         withdrawal.payment_method = "manual"
     
     # Update withdrawal status
-    withdrawal.status = WalletTransactionStatusDB.SUCCESS
-    withdrawal.completed_at = datetime.utcnow()
+    if request.method == "paystack":
+        withdrawal.status = WalletTransactionStatusDB.PROCESSING
+        # We don't deduct balance yet, it stays in hold_balance
+    else:
+        withdrawal.status = WalletTransactionStatusDB.SUCCESS
+        withdrawal.completed_at = datetime.utcnow()
+        # Release the hold on the wallet and deduct balance
+        wallet.hold_balance -= withdrawal.amount
+        wallet.balance -= withdrawal.amount
+    
     withdrawal.metadata_json = {
         **(withdrawal.metadata_json or {}),
         "admin_notes": request.admin_notes,
@@ -262,19 +270,16 @@ async def process_withdrawal(
         "process_method": request.method
     }
     
-    # Release the hold on the wallet
-    wallet.hold_balance -= withdrawal.amount
-    wallet.balance -= withdrawal.amount
-    
-    # Notify user
-    notification = Notification(
-        user_id=user.id,
-        title="Withdrawal Processed",
-        message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} has been processed.",
-        notification_type="wallet",
-        is_read=False
-    )
-    db.add(notification)
+    # Notify user (if manual, otherwise wait for webhook)
+    if request.method != "paystack":
+        notification = Notification(
+            user_id=user.id,
+            title="Withdrawal Processed",
+            message=f"Your withdrawal of KES {withdrawal.net_amount / 100:,.0f} has been processed.",
+            notification_type="wallet",
+            is_read=False
+        )
+        db.add(notification)
     
     db.commit()
     

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
 
-from database.connection import get_db
+from database.config import get_db
 from database.models import User, Brand
 from database.marketplace_models import (
     Campaign, CampaignStatusDB, Bid, BidStatusDB,
