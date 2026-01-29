@@ -8,7 +8,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from database.config import get_db
-from database.models import User, UserType
+from database.models import User, UserType, Brand
 from database.marketplace_models import (
     InfluencerProfile, Package, Campaign, Deliverable, Wallet, 
     WalletTransaction, EscrowHold,
@@ -62,28 +62,23 @@ async def create_campaign(
     if not influencer:
         raise HTTPException(status_code=404, detail="Influencer not found")
 
-    # Determine who is creating the campaign and validate ownership
-    if current_user.user_type == UserTypeRole.BRAND:
-        # Brands can create campaigns for their own brands (existing logic)
-        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
-    elif current_user.user_type == UserTypeRole.INFLUENCER:
-        # Influencers can only create campaigns for brands they own/are associated with
-        # Check if influencer owns the brand_entity_id (if provided)
-        # For now, assume influencer can only use their own user_id as brand_id
-        if campaign_data.brand_entity_id and campaign_data.brand_entity_id != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Influencers can only create campaigns for their own brands.")
-        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
-    else:
-        # Admins can create for any brand
-        brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+    # Validate Brand Ownership if brand identifier provided
+    if campaign_data.brand_entity_id:
+        brand_entity = db.query(Brand).filter(Brand.id == campaign_data.brand_entity_id).first()
+        if not brand_entity:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        
+        # Check ownership (unless admin)
+        is_admin = False
+        if hasattr(current_user, 'user_type'):
+             # Handle both string "admin" and Enum UserTypeRole.ADMIN
+             if current_user.user_type == UserTypeRole.ADMIN or str(current_user.user_type).lower() == 'admin':
+                 is_admin = True
+        
+        if not is_admin and brand_entity.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only create campaigns for brands you own.")
 
-    if not brand_wallet:
-        raise HTTPException(
-            status_code=400, 
-            detail="Please set up your wallet and deposit funds first"
-        )
-    
-    # Get brand's wallet
+    # Get buyer's wallet (Brand or Influencer acting as buyer)
     brand_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
     
     if not brand_wallet:
