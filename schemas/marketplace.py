@@ -326,6 +326,13 @@ class WithdrawRequest(BaseModel):
     payment_method: str = "bank_transfer"  # bank_transfer, mpesa
 
 
+class ManualFundRequest(BaseModel):
+    """Schema for admin manual funding of user wallet."""
+    user_id: str
+    amount: int = Field(..., ge=1)  # Amount in KES
+    description: str = Field(..., min_length=5)
+
+
 class TransactionResponse(BaseModel):
     """Schema for transaction response."""
     id: str

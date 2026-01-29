@@ -21,6 +21,7 @@ from schemas.marketplace import (
     TransactionResponse,
     TransactionType,
     TransactionStatus,
+    ManualFundRequest,
 )
 from auth.roles import UserType as UserTypeRole
 from auth.decorators import require_user_type, AuthError
@@ -516,3 +517,73 @@ async def process_withdrawal(
         return {"status": "rejected", "message": "Withdrawal request rejected"}
     
     raise HTTPException(status_code=400, detail="Action must be 'approve' or 'reject'")
+
+
+@router.post("/admin/fund-wallet")
+async def manual_fund_wallet(
+    request: ManualFundRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """
+    Manually fund a user's wallet (Admin only).
+    Used for offline payments, bank transfers, etc.
+    """
+    # Get user's wallet
+    wallet = db.query(Wallet).filter(Wallet.user_id == request.user_id).first()
+    if not wallet:
+        # Create wallet if missing
+        wallet = Wallet(
+            user_id=request.user_id,
+            balance=0,
+            hold_balance=0,
+            total_earned=0,
+            total_spent=0,
+            currency="KES"
+        )
+        db.add(wallet)
+        db.flush()
+    
+    amount_cents = int(request.amount * 100)
+    
+    # Create transaction
+    transaction = WalletTransaction(
+        to_wallet_id=wallet.id,
+        amount=amount_cents,
+        fee=0,
+        net_amount=amount_cents,
+        transaction_type=WalletTransactionTypeDB.DEPOSIT,
+        status=WalletTransactionStatusDB.COMPLETED,
+        payment_method="manual",
+        description=f"Manual deposit: {request.description}",
+        completed_at=datetime.utcnow(),
+        metadata_json={
+            "admin_id": current_user.id,
+            "admin_name": current_user.name or current_user.email,
+            "reason": request.description,
+            "funded_at": datetime.utcnow().isoformat()
+        }
+    )
+    db.add(transaction)
+    
+    # Credit wallet
+    wallet.balance += amount_cents
+    
+    # Create notification
+    notif = Notification(
+        user_id=request.user_id,
+        title="Wallet Funded Manually",
+        message=f"Admin has manually credited your wallet with KES {request.amount:,.2f}. Reason: {request.description}",
+        notification_type="wallet",
+        is_read=False
+    )
+    db.add(notif)
+    
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"Successfully funded wallet with KES {request.amount:,.2f}",
+        "new_balance": wallet.balance,
+        "transaction_id": transaction.id
+    }
