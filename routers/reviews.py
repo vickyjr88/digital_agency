@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from typing import List, Optional
 from datetime import datetime
 
