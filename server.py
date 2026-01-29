@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # Import database and auth utilities
 from database.config import get_db, init_db, SessionLocal
-from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, UserType, Usage, Trend, Transaction, PaymentStatus, generate_uuid
+from database.models import User, Brand, Content, SubscriptionTier, SubscriptionStatus, ContentStatus, UserRole, UserType, Usage, Trend, Transaction, PaymentStatus, generate_uuid, GenerationFailure
 from auth.utils import (
     verify_password,
     get_password_hash,
@@ -917,11 +917,24 @@ def generate_content_on_demand(
     }
     
     # 3. Generate Content
-    generator = ContentGenerator()
-    content_data = generator.generate_content(request.trend, persona)
-    
-    if not content_data:
-        raise HTTPException(status_code=500, detail="Content generation failed")
+    try:
+        generator = ContentGenerator()
+        content_data = generator.generate_content(request.trend, persona)
+        
+        if not content_data:
+            raise Exception("Content generation returned empty")
+            
+    except Exception as e:
+        # Log failure
+        failure = GenerationFailure(
+            brand_id=brand.id,
+            trend=request.trend,
+            error_message=str(e)
+        )
+        db.add(failure)
+        db.commit()
+        print(f"❌ Generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Content generation failed. Our team has been notified.")
     
     # 4. Save to Database
     new_content = Content(

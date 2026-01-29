@@ -194,5 +194,12 @@ class Transaction(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
-    # Relationships
-    user = relationship("User", back_populates="transactions")
+
+class GenerationFailure(Base):
+    __tablename__ = "generation_failures"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    brand_id = Column(String(36), ForeignKey("brands.id", ondelete="CASCADE"), nullable=True)
+    trend = Column(String(500))
+    error_message = Column(Text)
+    timestamp = Column(DateTime, server_default=func.now())
