@@ -28,11 +28,7 @@ from core.paystack_service import PaystackService
 
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
 
-# Platform fee percentage (15%)
-PLATFORM_FEE_PERCENT = 15
-
-# Minimum withdrawal amount in cents (KES 100 = 10000 cents)
-MIN_WITHDRAWAL_AMOUNT_CENTS = 10000  # KES 100
+from config.app_config import PLATFORM_FEE_PERCENT, MIN_WITHDRAWAL_AMOUNT_CENTS
 
 
 # ============================================================================

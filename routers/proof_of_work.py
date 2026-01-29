@@ -25,11 +25,7 @@ from auth.decorators import require_user_type
 
 router = APIRouter(prefix="/proof-of-work", tags=["Proof of Work"])
 
-# Platform fee percentage (10%)
-PLATFORM_FEE_PERCENT = 10
-
-# Minimum withdrawal amount in cents (KES 100 = 10000 cents)
-MIN_WITHDRAWAL_AMOUNT_CENTS = 10000  # KES 100
+from config.app_config import PLATFORM_FEE_PERCENT, MIN_WITHDRAWAL_AMOUNT_CENTS
 
 
 # ============================================================================

@@ -642,6 +642,14 @@ async def paystack_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"❌ Withdrawal {transfer_code} marked FAILED and hold released")
 
     return {"status": "received"}
+@app.get("/api/v2/config")
+def get_app_config():
+    from config.app_config import PLATFORM_FEE_PERCENT, MIN_WITHDRAWAL_AMOUNT_CENTS
+    return {
+        "platform_fee_percent": PLATFORM_FEE_PERCENT,
+        "min_withdrawal_amount": MIN_WITHDRAWAL_AMOUNT_CENTS,
+        "currency": "KES"
+    }
 
 @app.put("/api/auth/profile")
 def update_profile(

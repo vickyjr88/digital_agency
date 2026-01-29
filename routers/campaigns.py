@@ -30,10 +30,7 @@ from services.notification_service import get_notification_service, Notification
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 
-# Platform fee percentage
-PLATFORM_FEE_PERCENT = 10
-# Auto-release escrow after days
-ESCROW_AUTO_RELEASE_DAYS = 14
+from config.app_config import PLATFORM_FEE_PERCENT, ESCROW_AUTO_RELEASE_DAYS
 
 
 # ============================================================================
