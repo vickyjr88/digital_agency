@@ -11,7 +11,7 @@ from decimal import Decimal
 from database.config import get_db
 from database.models import User, UserType
 from database.marketplace_models import (
-    Wallet, WalletTransaction, EscrowHold,
+    Wallet, WalletTransaction, EscrowHold, PaymentMethod,
     WalletTransactionTypeDB, WalletTransactionStatusDB, EscrowStatusDB
 )
 from schemas.marketplace import (
@@ -28,8 +28,11 @@ from core.paystack_service import PaystackService
 
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
 
-# Platform fee percentage (10%)
-PLATFORM_FEE_PERCENT = 10
+# Platform fee percentage (15%)
+PLATFORM_FEE_PERCENT = 15
+
+# Minimum withdrawal amount in cents (KES 100 = 10000 cents)
+MIN_WITHDRAWAL_AMOUNT_CENTS = 10000  # KES 100
 
 
 # ============================================================================
@@ -209,7 +212,6 @@ async def request_withdrawal(
     Funds will be transferred to their registered payment method.
     """
     wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
-    
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
     
@@ -217,6 +219,13 @@ async def request_withdrawal(
     amount_cents = withdraw_data.amount * 100
     fee_cents = 0  # Could add withdrawal fee here
     net_amount_cents = amount_cents - fee_cents
+    
+    # Check minimum withdrawal amount (KES 100)
+    if amount_cents < MIN_WITHDRAWAL_AMOUNT_CENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Minimum withdrawal amount is KES {MIN_WITHDRAWAL_AMOUNT_CENTS / 100:.0f}"
+        )
     
     # Check available balance (excluding held funds)
     available_balance = wallet.balance - wallet.hold_balance
@@ -227,6 +236,18 @@ async def request_withdrawal(
             detail=f"Insufficient balance. Available: KES {available_balance / 100}"
         )
     
+    # Check if user has a primary payment method
+    primary_method = db.query(PaymentMethod).filter(
+        PaymentMethod.wallet_id == wallet.id,
+        PaymentMethod.is_primary == True
+    ).first()
+    
+    if not primary_method:
+        raise HTTPException(
+            status_code=400,
+            detail="No primary payment method set. Please add a payment method first."
+        )
+
     # Create withdrawal transaction (pending admin approval)
     transaction = WalletTransaction(
         from_wallet_id=wallet.id,
@@ -235,8 +256,14 @@ async def request_withdrawal(
         net_amount=net_amount_cents,
         transaction_type=WalletTransactionTypeDB.WITHDRAWAL,
         status=WalletTransactionStatusDB.PENDING,
-        payment_method=withdraw_data.payment_method,
-        description=f"Withdrawal request of KES {withdraw_data.amount}"
+        payment_method=primary_method.method_type.value,
+        description=f"Withdrawal request of KES {withdraw_data.amount}",
+        metadata_json={
+            "payment_method_id": primary_method.id,
+            "account_name": primary_method.account_name,
+            "account_number": primary_method.account_number or primary_method.phone_number,
+            "bank_name": primary_method.bank_name
+        }
     )
     
     db.add(transaction)
