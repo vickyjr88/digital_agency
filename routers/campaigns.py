@@ -830,11 +830,25 @@ def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
 def _campaign_to_response(campaign: Campaign, db: Session, include_deliverables: bool = False) -> CampaignResponse:
     """Convert campaign to response."""
     from routers.influencers import _profile_to_response
-    
+    from routers.packages import _package_to_response
+
     # Get related data
     package = db.query(Package).filter(Package.id == campaign.package_id).first()
     influencer = db.query(InfluencerProfile).filter(InfluencerProfile.id == campaign.influencer_id).first()
     
+    # Get Brand data
+    brand_entity = None
+    if campaign.brand_entity_id:
+        brand_obj = db.query(Brand).filter(Brand.id == campaign.brand_entity_id).first()
+        if brand_obj:
+            brand_entity = {
+                "id": brand_obj.id,
+                "name": brand_obj.name,
+                "industry": brand_obj.industry,
+                "description": brand_obj.description,
+                "logo_url": brand_obj.logo_url
+            }
+
     deliverables = []
     if include_deliverables:
         deliverables_db = db.query(Deliverable).filter(Deliverable.campaign_id == campaign.id).all()
@@ -881,7 +895,8 @@ def _campaign_to_response(campaign: Campaign, db: Session, include_deliverables:
         revisions_allowed=campaign.revisions_allowed or 0,
         created_at=campaign.created_at,
         updated_at=campaign.updated_at,
-        package=None,  # Can add package response here
+        package=_package_to_response(package, influencer) if package and influencer else None,
         influencer=_profile_to_response(influencer) if influencer else None,
-        deliverables=deliverables
+        deliverables=deliverables,
+        brand_entity=brand_entity
     )

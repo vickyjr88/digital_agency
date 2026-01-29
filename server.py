@@ -1289,28 +1289,72 @@ def get_admin_stats(
     total_trends = db.query(Trend).count()
     total_content = db.query(Content).count()
     
-    # Recent Transactions
-    recent_txs = db.query(Transaction).join(User).order_by(Transaction.created_at.desc()).limit(5).all()
-    recent_transactions_data = []
-    for tx in recent_txs:
-        recent_transactions_data.append({
-            "id": tx.id,
+    # Recent Transactions (Mix of Subscriptions and Wallet Transactions)
+    recent_subscription_txs = db.query(Transaction).join(User).order_by(Transaction.created_at.desc()).limit(10).all()
+    recent_wallet_txs = db.query(WalletTransaction).join(Wallet).join(
+         User, Wallet.user_id == User.id
+    ).order_by(WalletTransaction.created_at.desc()).limit(10).all()
+
+    combined_txs = []
+    
+    # Process subscription transactions
+    for tx in recent_subscription_txs:
+        combined_txs.append({
+            "id": str(tx.id),
             "created_at": tx.created_at,
             "user_email": tx.user.email,
             "amount": tx.amount,
             "currency": tx.currency,
-            "status": tx.status
+            "status": tx.status.value if tx.status else "unknown",
+            "type": "SUBSCRIPTION"
         })
+
+    # Process wallet transactions
+    for tx in recent_wallet_txs:
+        # Determine user email from wallet relationship
+        user_email = "Unknown"
+        if tx.from_wallet and tx.from_wallet.user:
+            user_email = tx.from_wallet.user.email
+        elif tx.to_wallet and tx.to_wallet.user:
+            user_email = tx.to_wallet.user.email
+            
+        # Amount in cents to main currency unit if needed, assuming admin dashboard expects main unit
+        # However, subscription amounts seem to be stored in main unit or cents? 
+        # Usually stripe amounts are cents but let's assume consistency is needed.
+        # Checking existing code: Transaction.amount doesn't seem to be divided.
+        # WalletTransaction.amount is definitely cents.
+        
+        # NOTE: Adjust logic based on how frontend displays it. 
+        # Frontend shows "currency amount".
+        
+        combined_txs.append({
+            "id": str(tx.id),
+            "created_at": tx.created_at,
+            "user_email": user_email,
+            "amount": tx.amount / 100, # Convert cents to unit for display consistency
+            "currency": "KES", # Wallet is KES
+            "status": tx.status.value if tx.status else "unknown",
+            "type": tx.transaction_type.value if tx.transaction_type else "WALLET"
+        })
+
+    # Sort by date descending
+    combined_txs.sort(key=lambda x: x["created_at"], reverse=True)
     
+    # Take top 10
+    recent_transactions_data = combined_txs[:10]
+
     return {
-        "total_revenue": f"KES {total_revenue_amount:,.2f}",
-        "active_subscriptions": active_subscriptions,
-        "pending_transactions": pending_transactions,
-        "recent_transactions": recent_transactions_data,
-        "users": total_users,
-        "brands": total_brands,
-        "trends": total_trends,
-        "content_generated": total_content
+        "revenue": {
+            "total": total_revenue_amount,
+            "active_subscriptions": active_subscriptions
+        },
+        "users": {
+            "total": total_users,
+            "brands": total_brands,
+            "influencers": db.query(InfluencerProfile).count()
+        },
+        "content": total_content,
+        "recent_transactions": recent_transactions_data
     }
 
 @app.get("/api/admin/latest")

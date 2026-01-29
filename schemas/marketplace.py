@@ -405,6 +405,19 @@ class CampaignResponse(BaseModel):
     package: Optional[PackageResponse] = None
     influencer: Optional[InfluencerProfileResponse] = None
     deliverables: List["DeliverableResponse"] = []
+    brand_entity: Optional["BrandResponse"] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class BrandResponse(BaseModel):
+    """Schema for brand response."""
+    id: str
+    name: str
+    industry: Optional[str]
+    description: Optional[str]
+    logo_url: Optional[str]
     
     class Config:
         from_attributes = True
