@@ -125,7 +125,7 @@ async def create_open_campaign(
         product_url=request.product_url,
         content_dos=request.content_dos,
         content_donts=request.content_donts,
-        status=CampaignStatusDB.OPEN
+        status=CampaignStatusDB.OPEN.value
     )
     
     db.add(campaign)
