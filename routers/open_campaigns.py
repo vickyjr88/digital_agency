@@ -125,7 +125,7 @@ async def create_open_campaign(
         product_url=request.product_url,
         content_dos=request.content_dos,
         content_donts=request.content_donts,
-        status=CampaignStatusDB.OPEN.value
+        status="open"
     )
     
     db.add(campaign)
@@ -135,7 +135,7 @@ async def create_open_campaign(
     return {
         "message": "Campaign created successfully",
         "campaign_id": campaign.id,
-        "status": campaign.status.value
+        "status": getattr(campaign.status, 'value', campaign.status)
     }
 
 
