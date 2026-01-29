@@ -195,6 +195,9 @@ class Transaction(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
 
+    # Relationships
+    user = relationship("User", back_populates="transactions")
+
 class GenerationFailure(Base):
     __tablename__ = "generation_failures"
     

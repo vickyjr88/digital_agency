@@ -1283,6 +1283,34 @@ def get_admin_user_details(
         ]
     }
 
+@app.get("/api/admin/failures")
+def get_generation_failures(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get generation failures (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    failures = db.query(GenerationFailure).order_by(GenerationFailure.timestamp.desc()).limit(100).all()
+    return failures
+
+@app.get("/api/admin/content")
+def get_all_content_admin(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all content items (Admin only).
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    content = db.query(Content).order_by(Content.generated_at.desc()).limit(100).all()
+    return content
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
