@@ -416,6 +416,8 @@ async def submit_deliverable(
     campaign = _get_campaign_for_influencer(campaign_id, current_user, db)
     
     if campaign.status not in [
+        CampaignStatusDB.OPEN,
+        CampaignStatusDB.CLOSED,
         CampaignStatusDB.ACCEPTED, 
         CampaignStatusDB.IN_PROGRESS, 
         CampaignStatusDB.REVISION_REQUESTED,
@@ -445,7 +447,7 @@ async def submit_deliverable(
     db.add(deliverable)
     
     # Update campaign status (only for targeted campaigns, keep open campaigns OPEN)
-    if campaign.status != CampaignStatusDB.OPEN:
+    if campaign.status not in [CampaignStatusDB.OPEN, CampaignStatusDB.CLOSED]:
         campaign.status = CampaignStatusDB.DRAFT_SUBMITTED
         campaign.draft_submitted_at = datetime.utcnow()
     
@@ -490,7 +492,7 @@ async def approve_deliverable(
     deliverable.status = DeliverableStatusDB.APPROVED
     
     # Update campaign status (only for targeted campaigns)
-    if campaign.status != CampaignStatusDB.OPEN:
+    if campaign.status not in [CampaignStatusDB.OPEN, CampaignStatusDB.CLOSED]:
         campaign.status = CampaignStatusDB.DRAFT_APPROVED
     
     # Send notification to influencer
@@ -540,7 +542,7 @@ async def request_revision(
     deliverable.draft_description = f"{deliverable.draft_description or ''}\n\n--- REVISION REQUESTED ---\n{feedback}"
     
     # Update campaign status (only for targeted campaigns)
-    if campaign.status != CampaignStatusDB.OPEN:
+    if campaign.status not in [CampaignStatusDB.OPEN, CampaignStatusDB.CLOSED]:
         campaign.status = CampaignStatusDB.REVISION_REQUESTED
         campaign.revisions_used = (campaign.revisions_used or 0) + 1
     
@@ -579,22 +581,42 @@ async def mark_published(
     """
     campaign = _get_campaign_for_influencer(campaign_id, current_user, db)
     
-    if campaign.status != CampaignStatusDB.DRAFT_APPROVED:
+    # Get influencer profile
+    profile = db.query(InfluencerProfile).filter(
+        InfluencerProfile.user_id == current_user.id
+    ).first()
+    
+    # Verification check: For regular campaigns, campaign status must be DRAFT_APPROVED
+    # For open campaigns, we check if there are any approved deliverables for this influencer
+    is_open_campaign = campaign.status in [CampaignStatusDB.OPEN, CampaignStatusDB.CLOSED]
+    
+    if not is_open_campaign and campaign.status != CampaignStatusDB.DRAFT_APPROVED:
         raise HTTPException(status_code=400, detail="Draft must be approved before publishing")
     
-    # Update deliverables
-    deliverables = db.query(Deliverable).filter(
+    # Get approved deliverables for this influencer
+    query = db.query(Deliverable).filter(
         Deliverable.campaign_id == campaign_id,
         Deliverable.status == DeliverableStatusDB.APPROVED
-    ).all()
+    )
     
+    if profile:
+        query = query.filter(Deliverable.influencer_id == profile.id)
+    
+    deliverables = query.all()
+    
+    if not deliverables:
+        raise HTTPException(status_code=400, detail="No approved deliverables found to publish")
+    
+    # Update deliverables
     for d in deliverables:
         d.status = DeliverableStatusDB.PUBLISHED
         d.published_url = published_url
         d.published_at = datetime.utcnow()
     
-    campaign.status = CampaignStatusDB.PUBLISHED
-    campaign.published_at = datetime.utcnow()
+    # Update campaign status (only for targeted campaigns)
+    if not is_open_campaign:
+        campaign.status = CampaignStatusDB.PUBLISHED
+        campaign.published_at = datetime.utcnow()
     
     db.commit()
     
@@ -636,7 +658,7 @@ async def complete_campaign(
         return {"status": "completed", "message": "Payment released for influencer"}
 
     # For standard campaigns, we require published status
-    is_open_campaign = campaign.status == CampaignStatusDB.OPEN or campaign.influencer_id is None
+    is_open_campaign = campaign.status in [CampaignStatusDB.OPEN, CampaignStatusDB.CLOSED] or campaign.influencer_id is None
     
     if not is_open_campaign and campaign.status not in [CampaignStatusDB.PUBLISHED, CampaignStatusDB.PENDING_REVIEW]:
         raise HTTPException(status_code=400, detail="Campaign must be published before completion")
