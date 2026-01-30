@@ -389,6 +389,16 @@ class CampaignResponse(BaseModel):
     brief: Optional[CampaignBrief]
     custom_requirements: Optional[str]
     
+    # Open Campaign Fields
+    title: Optional[str] = None
+    description: Optional[str] = None
+    budget: Optional[int] = 0
+    product_name: Optional[str] = None
+    product_description: Optional[str] = None
+    product_url: Optional[str] = None
+    platforms: Optional[List[str]] = []
+    content_types: Optional[List[str]] = []
+    
     status: CampaignStatus
     
     deadline: Optional[datetime]
