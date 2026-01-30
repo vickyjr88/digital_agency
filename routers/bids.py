@@ -234,19 +234,11 @@ async def accept_bid(
     bid.status = BidStatusDB.ACCEPTED
     bid.accepted_at = datetime.utcnow()
     
-    # Update campaign
-    bid.campaign.influencer_id = bid.influencer_id
-    bid.campaign.package_id = bid.package_id
-    bid.campaign.status = CampaignStatusDB.ACCEPTED
+    # Note: We no longer assign campaign.influencer_id or reject other bids
+    # to allow multiple influencers to work on the same campaign.
+    # The campaign status remains OPEN until manually closed or budget exhausted.
     
-    # Reject other pending bids
-    db.query(Bid).filter(
-        Bid.campaign_id == bid.campaign_id,
-        Bid.id != bid_id,
-        Bid.status == BidStatusDB.PENDING
-    ).update({"status": BidStatusDB.REJECTED, "rejected_at": datetime.utcnow()})
-    
-    # Create notification for influencer
+    # Send notification
     notification = Notification(
         user_id=bid.influencer.user_id,
         type="bid_accepted",
@@ -491,10 +483,18 @@ async def update_bid_status_admin(
         bid.accepted_at = datetime.utcnow()
         bid.rejected_at = None
         bid.withdrawn_at = None
+        
+        # Note: We allow multiple influencers, so we DON'T update campaign.influencer_id
+        # or reject other bids.
+        # We also DON'T change campaign status to ACCEPTED, as it might still be OPEN for others.
+            
     elif new_status == BidStatusDB.REJECTED:
         bid.rejected_at = datetime.utcnow()
         bid.accepted_at = None
         bid.withdrawn_at = None
+        
+        # Note: No need to clear campaign.influencer_id as we don't set it for multi-influencer campaigns
+            
     elif new_status == BidStatusDB.PENDING:
         bid.accepted_at = None
         bid.rejected_at = None
@@ -509,7 +509,7 @@ async def update_bid_status_admin(
         title=f"Bid Status Updated by Admin",
         message=f"Your bid on '{bid.campaign.title}' status was changed from {old_status.value} to {new_status.value} by an administrator.",
         type="bid_update",
-        related_id=bid.id
+        data={"bid_id": bid.id, "campaign_id": bid.campaign_id}
     )
     db.add(notification)
     db.commit()

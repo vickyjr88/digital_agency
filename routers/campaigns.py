@@ -702,6 +702,9 @@ async def raise_dispute(
 # HELPER FUNCTIONS
 # ============================================================================
 
+    return campaign
+    
+    
 def _get_campaign_for_influencer(campaign_id: str, user: User, db: Session) -> Campaign:
     """Get campaign and verify influencer access."""
     profile = db.query(InfluencerProfile).filter(
@@ -716,7 +719,19 @@ def _get_campaign_for_influencer(campaign_id: str, user: User, db: Session) -> C
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    if user.user_type != UserType.ADMIN and campaign.influencer_id != profile.id:
+    # Check if this specific influencer is the assigned one OR has an accepted bid
+    has_accepted_bid = False
+    if profile:
+        from database.marketplace_models import Bid, BidStatusDB
+        accepted_bid = db.query(Bid).filter(
+            Bid.campaign_id == campaign.id,
+            Bid.influencer_id == profile.id,
+            Bid.status == BidStatusDB.ACCEPTED
+        ).first()
+        if accepted_bid:
+            has_accepted_bid = True
+            
+    if user.user_type != UserType.ADMIN and campaign.influencer_id != profile.id and not has_accepted_bid:
         raise HTTPException(status_code=403, detail="Access denied")
     
     return campaign
@@ -749,7 +764,18 @@ def _can_access_campaign(user: User, campaign: Campaign, db: Session) -> bool:
     
     if profile and campaign.influencer_id == profile.id:
         return True
-    
+        
+    # Check for accepted bid (multi-influencer support)
+    if profile:
+        from database.marketplace_models import Bid, BidStatusDB
+        accepted_bid = db.query(Bid).filter(
+            Bid.campaign_id == campaign.id,
+            Bid.influencer_id == profile.id,
+            Bid.status == BidStatusDB.ACCEPTED
+        ).first()
+        if accepted_bid:
+            return True
+            
     return False
 
 

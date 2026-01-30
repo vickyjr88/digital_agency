@@ -158,9 +158,9 @@ async def submit_proof_of_work(
     
     db.add(proof)
     
-    # Update campaign status
-    if bid.campaign:
-        bid.campaign.status = CampaignStatusDB.PENDING_REVIEW
+    # Note: We do NOT update campaign status to PENDING_REVIEW here
+    # because other influencers might still be working on the same campaign.
+    # The campaign remains OPEN (or its current status).
     
     # Notify brand
     notification = Notification(
@@ -387,8 +387,9 @@ async def review_proof_of_work(
         proof.reviewed_at = now
         proof.brand_notes = request.notes
         
-        # Update campaign status
-        proof.campaign.status = CampaignStatusDB.COMPLETED
+        # Update campaign status - REMOVED for multi-influencer support
+        # proof.campaign.status = CampaignStatusDB.COMPLETED
+        # The campaign remains active for other influencers. Brand must close it manually.
         
         # Release escrow to influencer
         bid = proof.bid

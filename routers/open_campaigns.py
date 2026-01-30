@@ -282,7 +282,7 @@ async def get_open_campaign(
             "id": campaign.brand_entity.id if campaign.brand_entity else None,
             "name": campaign.brand_entity.name if campaign.brand_entity else None,
         } if campaign.brand_entity else None,
-        "is_owner": is_owner,
+        "is_owner": is_owner or is_admin,
         "bids": [
             {
                 "id": b.id,
@@ -292,7 +292,7 @@ async def get_open_campaign(
                 "platform": b.platform,
                 "content_type": b.content_type,
                 "timeline_days": b.timeline_days,
-                "proposal": b.proposal if is_owner else None,  # Only owner sees proposals
+                "proposal": b.proposal if (is_owner or is_admin) else None,  # Only owner or admin sees proposals
                 "status": b.status.value,
                 "influencer": {
                     "id": b.influencer.id,
