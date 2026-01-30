@@ -7,6 +7,8 @@ from sqlalchemy import or_, and_
 from typing import List, Optional
 from datetime import datetime, timedelta
 
+from auth.dependencies import get_optional_current_user
+
 from database.config import get_db
 from database.models import User, UserType, Brand
 from database.marketplace_models import (
@@ -174,7 +176,6 @@ async def create_campaign(
 
 
 @router.get("", response_model=dict)
-from auth.dependencies import get_optional_current_user
 
 async def list_campaigns(
     db: Session = Depends(get_db),
