@@ -84,8 +84,8 @@ async def get_influencer_campaigns(
             detail="Influencer profile not found"
         )
     
-    if influencer.verification_status != VerificationStatus.APPROVED:
-        return {"campaigns": [], "count": 0, "message": "Your influencer profile must be approved to use AI content generation."}
+    # Verification check relaxed
+    pass
     
     # Get accepted bids for this influencer
     accepted_bids = db.query(Bid).options(
@@ -170,11 +170,8 @@ async def generate_campaign_content(
             detail="Influencer profile not found. Complete onboarding first."
         )
     
-    if influencer.verification_status != VerificationStatus.APPROVED:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your influencer profile must be approved to generate content."
-        )
+    # Verification check relaxed
+    pass
     
     # Get campaign
     campaign = db.query(Campaign).options(

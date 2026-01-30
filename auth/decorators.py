@@ -145,12 +145,6 @@ def require_verified_influencer():
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
-        if not profile.is_verified:
-            raise AuthError(
-                detail="Your influencer profile is pending verification",
-                status_code=status.HTTP_403_FORBIDDEN
-            )
-        
         return current_user
     
     return dependency

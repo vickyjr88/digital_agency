@@ -150,11 +150,8 @@ async def raise_dispute(
     ).first()
     
     # Enforce Approved Influencer status if raising as influencer
-    if profile and profile.verification_status != VerificationStatus.APPROVED and not is_brand:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your influencer profile must be approved to raise disputes."
-        )
+    # Verification check relaxed
+    pass
 
     is_influencer = False
     if profile:

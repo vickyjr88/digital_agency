@@ -103,11 +103,8 @@ async def submit_proof_of_work(
             detail="Influencer profile not found"
         )
     
-    if influencer.verification_status != VerificationStatus.APPROVED:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your influencer profile must be approved to submit proof of work."
-        )
+    # Verification check relaxed to allow all influencers to submit proof of work
+    pass
     
     # Get the bid
     bid = db.query(Bid).options(

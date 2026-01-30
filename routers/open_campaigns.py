@@ -625,7 +625,7 @@ async def get_my_bids(
     ).first()
     
     if not influencer:
-        raise HTTPException(status_code=403, detail="Influencer profile required")
+        return {"bids": [], "total": 0, "page": page, "pages": 0}
     
     query = db.query(Bid).options(
         joinedload(Bid.campaign).joinedload(Campaign.brand_entity)
