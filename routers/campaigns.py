@@ -180,7 +180,7 @@ async def create_campaign(
 async def list_campaigns(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user),
-    status_filter: Optional[CampaignStatus] = Query(None, description="Filter by status"),
+    status_filter: Optional[CampaignStatus] = Query(None, alias="status", description="Filter by status"),
     role: Optional[str] = Query(None, description="Filter by role: brand or influencer"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -191,7 +191,7 @@ async def list_campaigns(
     """
     query = db.query(Campaign)
 
-    # If public request for open campaigns, allow unauthenticated
+    # If request is for open campaigns, allow anyone (authenticated or not)
     if status_filter and status_filter.value == "open":
         query = query.filter(Campaign.status == "open")
     else:
