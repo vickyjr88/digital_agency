@@ -36,7 +36,7 @@ ENUM_TYPES = [
     ("disputestatusdb", ["open", "under_review", "resolved", "closed"]),
     ("bidstatusdb", ["pending", "accepted", "rejected", "withdrawn", "completed", "paid"]),
     ("proofofworkstatus", ["pending", "approved", "rejected", "revision_requested"]),
-    ("campaigncontentstatus", ["draft", "submitted", "approved", "published"])
+    ("campaigncontentstatus", ["draft", "pending_approval", "approved", "rejected", "published"])
 ]
 
 # List of (table_name, column_name, type_name)
@@ -54,7 +54,7 @@ TABLE_COLUMNS = [
     ("disputes", "status", "disputestatusdb"),
     ("payment_methods", "method_type", "paymentmethodtype"),
     ("proof_of_work", "status", "proofofworkstatus"),
-    ("campaign_content", "status", "campaigncontentstatus")
+    ("campaign_contents", "status", "campaigncontentstatus")
 ]
 
 def sync_marketplace():
