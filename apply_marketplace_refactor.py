@@ -44,7 +44,9 @@ def apply_migration():
     # Postgres ADD VALUE cannot be run inside a transaction block
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         print("🔍 Updating 'bidstatusdb' enum...")
-        for value in ['completed', 'paid']:
+        # Use lowercase values to match platform standards
+        values_to_add = ['completed', 'paid']
+        for value in values_to_add:
             try:
                 # This works for Postgres 12+
                 conn.execute(text(f"ALTER TYPE bidstatusdb ADD VALUE IF NOT EXISTS '{value}';"))

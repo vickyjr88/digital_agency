@@ -193,7 +193,7 @@ class InfluencerProfile(Base):
     
     # Verification
     is_verified = Column(Boolean, default=False)
-    verification_status = Column(Enum(VerificationStatusDB), default=VerificationStatusDB.PENDING)
+    verification_status = Column(Enum(VerificationStatusDB, values_callable=lambda x: [e.value for e in x], name="verificationstatusdb"), default=VerificationStatusDB.PENDING)
     identity_verified_at = Column(DateTime)
     
     created_at = Column(DateTime, server_default=func.now())
@@ -218,7 +218,7 @@ class Package(Base):
     
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False)
-    platform = Column(Enum(PlatformTypeDB), nullable=False)
+    platform = Column(Enum(PlatformTypeDB, values_callable=lambda x: [e.value for e in x], name="platformtypedb"), nullable=False)
     content_type = Column(String(50), nullable=False)  # post, story, reel, video
     deliverables_count = Column(Integer, nullable=False, default=1)
     price = Column(Integer, nullable=False)  # In cents (smallest currency unit)
@@ -229,7 +229,7 @@ class Package(Base):
     requirements = Column(JSON)  # What's needed from brand
     exclusions = Column(Text)    # What's NOT included
     
-    status = Column(Enum(PackageStatusDB), default=PackageStatusDB.ACTIVE)
+    status = Column(Enum(PackageStatusDB, values_callable=lambda x: [e.value for e in x], name="packagestatusdb"), default=PackageStatusDB.ACTIVE)
     times_purchased = Column(Integer, default=0)
     
     created_at = Column(DateTime, server_default=func.now())
@@ -286,7 +286,7 @@ class PaymentMethod(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Payment method details
-    method_type = Column(Enum(PaymentMethodType), nullable=False)
+    method_type = Column(Enum(PaymentMethodType, values_callable=lambda x: [e.value for e in x], name="paymentmethodtype"), nullable=False)
     
     # Mobile money details
     phone_number = Column(String(20))  # Format: 254XXXXXXXXX
@@ -324,8 +324,8 @@ class WalletTransaction(Base):
     fee = Column(Integer, default=0)  # Platform fee
     net_amount = Column(Integer, nullable=False)  # amount - fee
     
-    transaction_type = Column(Enum(WalletTransactionTypeDB), nullable=False)
-    status = Column(Enum(WalletTransactionStatusDB), default=WalletTransactionStatusDB.PENDING)
+    transaction_type = Column(Enum(WalletTransactionTypeDB, values_callable=lambda x: [e.value for e in x], name="wallettransactiontypedb"), nullable=False)
+    status = Column(Enum(WalletTransactionStatusDB, values_callable=lambda x: [e.value for e in x], name="wallettransactionstatusdb"), default=WalletTransactionStatusDB.PENDING)
     
     payment_method = Column(String(30))  # stripe_card, mpesa, bank_transfer
     external_id = Column(String(255))    # Paystack reference, etc.
@@ -354,7 +354,7 @@ class EscrowHold(Base):
     campaign_id = Column(String(36), ForeignKey("campaigns.id"), nullable=True)  # Set after campaign created
     
     amount = Column(Integer, nullable=False)  # In cents
-    status = Column(Enum(EscrowStatusDB), default=EscrowStatusDB.LOCKED)
+    status = Column(Enum(EscrowStatusDB, values_callable=lambda x: [e.value for e in x], name="escrowstatusdb"), default=EscrowStatusDB.LOCKED)
     
     locked_at = Column(DateTime, server_default=func.now())
     auto_release_at = Column(DateTime)  # 14 days from locked_at
@@ -475,7 +475,7 @@ class Deliverable(Base):
     influencer_id = Column(String(36), ForeignKey("influencer_profiles.id", ondelete="CASCADE"), nullable=True)
     
     content_type = Column(String(50), nullable=False)  # post, story, reel, video
-    platform = Column(Enum(PlatformTypeDB), nullable=False)
+    platform = Column(Enum(PlatformTypeDB, values_callable=lambda x: [e.value for e in x], name="platformtypedb"), nullable=False)
     
     # Draft content
     draft_url = Column(String(500))
@@ -488,7 +488,7 @@ class Deliverable(Base):
     published_at = Column(DateTime)
     verified_at = Column(DateTime)
     
-    status = Column(Enum(DeliverableStatusDB), default=DeliverableStatusDB.PENDING)
+    status = Column(Enum(DeliverableStatusDB, values_callable=lambda x: [e.value for e in x], name="deliverablestatusdb"), default=DeliverableStatusDB.PENDING)
     
     # Performance metrics (captured post-publication)
     views = Column(Integer)
@@ -548,7 +548,7 @@ class Dispute(Base):
     reason = Column(Text, nullable=False)
     evidence_urls = Column(JSON)  # Array of URLs
     
-    status = Column(Enum(DisputeStatusDB), default=DisputeStatusDB.OPEN)
+    status = Column(Enum(DisputeStatusDB, values_callable=lambda x: [e.value for e in x], name="disputestatusdb"), default=DisputeStatusDB.OPEN)
     
     resolution = Column(Text)
     resolved_in_favor_of = Column(String(36), ForeignKey("users.id"), nullable=True)
@@ -617,7 +617,7 @@ class Bid(Base):
     # Proposal message
     proposal = Column(Text)  # Cover letter / pitch
     
-    status = Column(Enum(BidStatusDB), default=BidStatusDB.PENDING)
+    status = Column(Enum(BidStatusDB, values_callable=lambda x: [e.value for e in x], name="bidstatusdb"), default=BidStatusDB.PENDING)
     
     # If accepted, link to the escrow
     escrow_id = Column(String(36), ForeignKey("escrow_holds.id"), nullable=True)
@@ -673,7 +673,7 @@ class ProofOfWork(Base):
     shares_count = Column(Integer, default=0)
     
     # Status
-    status = Column(Enum(ProofOfWorkStatus), default=ProofOfWorkStatus.PENDING)
+    status = Column(Enum(ProofOfWorkStatus, values_callable=lambda x: [e.value for e in x], name="proofofworkstatus"), default=ProofOfWorkStatus.PENDING)
     
     # Brand review
     brand_notes = Column(Text)  # Feedback from brand
@@ -734,7 +734,7 @@ class CampaignContent(Base):
     model_used = Column(String(100))  # gemini-2.0-flash, gpt-4, etc.
     
     # Status tracking
-    status = Column(Enum(CampaignContentStatus), default=CampaignContentStatus.DRAFT)
+    status = Column(Enum(CampaignContentStatus, values_callable=lambda x: [e.value for e in x], name="campaigncontentstatus"), default=CampaignContentStatus.DRAFT)
     
     # Brand feedback
     brand_feedback = Column(Text)
