@@ -17,7 +17,7 @@ from database.marketplace_models import (
 from auth.dependencies import get_current_user
 from schemas.marketplace import BidCreate, BidResponse, BidUpdate
 
-router = APIRouter(prefix="/v2/bids", tags=["bids"])
+router = APIRouter(prefix="/bids", tags=["bids"])
 
 
 @router.post("", response_model=BidResponse, status_code=http_status.HTTP_201_CREATED)
