@@ -174,9 +174,11 @@ async def create_campaign(
 
 
 @router.get("", response_model=dict)
+from auth.dependencies import get_optional_current_user
+
 async def list_campaigns(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN)),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     status_filter: Optional[CampaignStatus] = Query(None, description="Filter by status"),
     role: Optional[str] = Query(None, description="Filter by role: brand or influencer"),
     page: int = Query(1, ge=1),
@@ -187,30 +189,35 @@ async def list_campaigns(
     Brands see their purchased campaigns, influencers see received campaigns.
     """
     query = db.query(Campaign)
-    
-    # Filter by user role
-    user_type = current_user.user_type
-    
-    if user_type == UserType.BRAND or role == "brand":
-        query = query.filter(Campaign.brand_id == current_user.id)
-    elif user_type == UserType.INFLUENCER or role == "influencer":
-        # Get influencer profile
-        profile = db.query(InfluencerProfile).filter(
-            InfluencerProfile.user_id == current_user.id
-        ).first()
-        if profile:
-            query = query.filter(Campaign.influencer_id == profile.id)
-        else:
-            return {"campaigns": [], "pagination": {"page": 1, "limit": limit, "total": 0}}
-    
-    if status_filter:
-        query = query.filter(Campaign.status == status_filter.value)
-    
+
+    # If public request for open campaigns, allow unauthenticated
+    if status_filter and status_filter.value == "open":
+        query = query.filter(Campaign.status == "open")
+    else:
+        # Require authentication for all other queries
+        if not current_user:
+            from fastapi import HTTPException, status as http_status
+            raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        user_type = current_user.user_type
+        if user_type == UserType.BRAND or role == "brand":
+            query = query.filter(Campaign.brand_id == current_user.id)
+        elif user_type == UserType.INFLUENCER or role == "influencer":
+            profile = db.query(InfluencerProfile).filter(
+                InfluencerProfile.user_id == current_user.id
+            ).first()
+            if profile:
+                query = query.filter(Campaign.influencer_id == profile.id)
+            else:
+                return {"campaigns": [], "pagination": {"page": 1, "limit": limit, "total": 0}}
+        # Admin can see all campaigns (no filter)
+        if status_filter:
+            query = query.filter(Campaign.status == status_filter.value)
+
     total = query.count()
-    
     offset = (page - 1) * limit
     campaigns = query.order_by(Campaign.created_at.desc()).offset(offset).limit(limit).all()
-    
+
     return {
         "campaigns": [_campaign_to_response(c, db) for c in campaigns],
         "pagination": {
