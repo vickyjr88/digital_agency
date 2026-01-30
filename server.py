@@ -23,7 +23,7 @@ from auth.utils import (
 )
 from database.marketplace_models import (
     Wallet, WalletTransaction, WalletTransactionTypeDB, 
-    WalletTransactionStatusDB, Notification
+    WalletTransactionStatusDB, Notification, InfluencerProfile
 )
 from core.sheets_handler import SheetsHandler
 from core.generator import ContentGenerator
