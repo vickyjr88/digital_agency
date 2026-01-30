@@ -217,9 +217,9 @@ async def list_open_campaigns(
 async def get_open_campaign(
     campaign_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
-    """Get details of an open campaign."""
+    """Get details of an open campaign. Public for OPEN campaigns, authenticated for others."""
     
     campaign = db.query(Campaign).options(
         joinedload(Campaign.brand_entity),
@@ -230,14 +230,31 @@ async def get_open_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    # Check access
-    is_owner = campaign.brand_id == current_user.id
-    influencer_profile = db.query(InfluencerProfile).filter(
-        InfluencerProfile.user_id == current_user.id
-    ).first()
+    # Check if user is admin
+    is_admin = current_user and current_user.user_type == UserType.ADMIN
     
-    if not is_owner and campaign.status != CampaignStatusDB.OPEN:
-        raise HTTPException(status_code=403, detail="Campaign is not open")
+    # Public access for OPEN campaigns
+    if campaign.status == CampaignStatusDB.OPEN:
+        # Anyone can view open campaigns
+        pass
+    elif is_admin:
+        # Admins can view all campaigns
+        pass
+    elif current_user:
+        # Authenticated users can view their own campaigns regardless of status
+        is_owner = campaign.brand_id == current_user.id
+        if not is_owner:
+            raise HTTPException(status_code=403, detail="You don't have access to this campaign")
+    else:
+        # Non-authenticated users can only view OPEN campaigns
+        raise HTTPException(status_code=403, detail="Campaign is not publicly available")
+    
+    # Get influencer profile if user is authenticated
+    influencer_profile = None
+    if current_user:
+        influencer_profile = db.query(InfluencerProfile).filter(
+            InfluencerProfile.user_id == current_user.id
+        ).first()
     
     # Get user's bid if influencer
     user_bid = None

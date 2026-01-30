@@ -916,3 +916,99 @@ def _campaign_to_response(campaign: Campaign, db: Session, include_deliverables:
         deliverables=deliverables,
         brand_entity=brand_entity
     )
+
+
+# ============================================================================
+# ADMIN CAMPAIGN MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.put("/admin/{campaign_id}", response_model=CampaignResponse)
+async def update_campaign_admin(
+    campaign_id: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    budget: Optional[int] = None,
+    status: Optional[str] = None,
+    deadline: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Update campaign details (Admin only)."""
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    # Update fields if provided
+    if title is not None:
+        campaign.title = title
+    if description is not None:
+        campaign.description = description
+    if budget is not None:
+        campaign.budget = budget
+    if status is not None:
+        try:
+            campaign.status = CampaignStatusDB(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    if deadline is not None:
+        from datetime import datetime
+        try:
+            campaign.deadline = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid deadline format")
+    
+    db.commit()
+    db.refresh(campaign)
+    
+    return _campaign_to_response(campaign, db)
+
+
+@router.delete("/admin/{campaign_id}")
+async def delete_campaign_admin(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Delete a campaign (Admin only)."""
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    db.delete(campaign)
+    db.commit()
+    
+    return {"message": "Campaign deleted successfully", "campaign_id": campaign_id}
+
+
+@router.post("/admin/{campaign_id}/disassociate-influencer")
+async def disassociate_influencer_admin(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.ADMIN))
+):
+    """Remove influencer from campaign (Admin only)."""
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    if not campaign.influencer_id:
+        raise HTTPException(status_code=400, detail="Campaign has no associated influencer")
+    
+    # Remove influencer and package association
+    campaign.influencer_id = None
+    campaign.package_id = None
+    
+    # Reset status to open if it was in progress
+    if campaign.status in [CampaignStatusDB.ACCEPTED, CampaignStatusDB.IN_PROGRESS]:
+        campaign.status = CampaignStatusDB.OPEN
+    
+    db.commit()
+    db.refresh(campaign)
+    
+    return {
+        "message": "Influencer disassociated successfully",
+        "campaign": _campaign_to_response(campaign, db)
+    }
