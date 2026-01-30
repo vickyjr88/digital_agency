@@ -382,8 +382,8 @@ class CampaignResponse(BaseModel):
     """Schema for campaign response."""
     id: str
     brand_id: str
-    influencer_id: str
-    package_id: str
+    influencer_id: Optional[str]
+    package_id: Optional[str]
     escrow_id: Optional[str]
     
     brief: Optional[CampaignBrief]
