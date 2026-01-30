@@ -208,19 +208,18 @@ def _get_user_type(user: User) -> UserType:
     """Helper to extract UserType from User object with backward compatibility."""
     # Legacy: Check if admin via role field first
     if hasattr(user, 'role') and user.role:
-        role_val = str(user.role).lower()
+        role_val = str(user.role.value if hasattr(user.role, 'value') else user.role).lower()
         if role_val == "admin":
             return UserType.ADMIN
 
     if hasattr(user, 'user_type') and user.user_type:
-        user_type = user.user_type
-        if isinstance(user_type, str):
+        # Get raw value regardless of whether it's an enum or string
+        val = user.user_type.value if hasattr(user.user_type, 'value') else user.user_type
+        if val:
             try:
-                return UserType(user_type.lower())
+                return UserType(str(val).lower())
             except ValueError:
                 pass
-        elif isinstance(user_type, UserType):
-            return user_type
     
     # Default to brand for backward compatibility
     return UserType.BRAND

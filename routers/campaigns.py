@@ -1,7 +1,7 @@
 # Campaigns Router for Dexter Marketplace
 # Handles the complete campaign lifecycle between brands and influencers
 
-from fastapi import APIRouter, HTTPException, Depends, Query, status
+from fastapi import APIRouter, HTTPException, Depends, Query, status, Body
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
 from typing import List, Optional
@@ -465,7 +465,7 @@ async def approve_deliverable(
     campaign_id: str,
     deliverable_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.ADMIN))
+    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN))
 ):
     """
     Approve a deliverable (Brand only).
@@ -502,9 +502,9 @@ async def approve_deliverable(
 async def request_revision(
     campaign_id: str,
     deliverable_id: str,
-    feedback: str,
+    feedback: str = Body(..., embed=True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.ADMIN))
+    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN))
 ):
     """
     Request revision on a deliverable (Brand only).
@@ -593,7 +593,7 @@ async def mark_published(
 async def complete_campaign(
     campaign_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.ADMIN))
+    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN))
 ):
     """
     Complete a campaign and release funds (Brand only).
@@ -743,14 +743,24 @@ def _get_campaign_for_influencer(campaign_id: str, user: User, db: Session) -> C
     return campaign
 
 
+import logging
+
 def _get_campaign_for_brand(campaign_id: str, user: User, db: Session) -> Campaign:
     """Get campaign and verify brand access."""
+    from auth.decorators import _get_user_type, UserType as UserTypeRole
+    
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    if user.user_type != UserType.ADMIN and campaign.brand_id != user.id:
+    # Check if user owns the campaign or is admin
+    user_type = _get_user_type(user)
+    is_admin = user_type == UserTypeRole.ADMIN
+    is_owner = campaign.brand_id == user.id
+    
+    if not is_admin and not is_owner:
+        logging.warning(f"Access denied to campaign {campaign_id} for user {user.id}. Owner is {campaign.brand_id}. User type: {user_type}")
         raise HTTPException(status_code=403, detail="Access denied")
     
     return campaign
