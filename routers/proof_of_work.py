@@ -14,12 +14,13 @@ from database.marketplace_models import (
     ProofOfWork, ProofOfWorkStatus,
     Bid, BidStatusDB,
     Campaign, CampaignStatusDB,
-    InfluencerProfile, VerificationStatus,
+    InfluencerProfile,
     EscrowHold, EscrowStatusDB,
     Wallet, WalletTransaction,
     WalletTransactionTypeDB, WalletTransactionStatusDB,
     Notification
 )
+from schemas.marketplace import VerificationStatus
 from auth.roles import UserType as UserTypeRole
 from auth.decorators import require_user_type
 

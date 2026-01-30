@@ -567,7 +567,12 @@ class BidUpdate(BaseModel):
     """Schema for updating a bid."""
     amount: Optional[int] = None
     deliverables_description: Optional[str] = None
+    deliverables_count: Optional[int] = None
+    platform: Optional[str] = None
+    content_type: Optional[str] = None
+    timeline_days: Optional[int] = None
     proposal: Optional[str] = None
+    package_id: Optional[str] = None
 
 
 class BidResponse(BaseModel):

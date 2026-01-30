@@ -19,10 +19,11 @@ from schemas.marketplace import (
     DisputeResponse,
     DisputeResolve,
     DisputeStatus,
+    VerificationStatus,
 )
 from auth.roles import UserType as UserTypeRole
 from auth.decorators import require_user_type
-from database.marketplace_models import Notification, Bid, BidStatusDB, VerificationStatus
+from database.marketplace_models import Notification, Bid, BidStatusDB
 
 router = APIRouter(prefix="/disputes", tags=["Disputes"])
 

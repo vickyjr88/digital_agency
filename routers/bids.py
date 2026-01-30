@@ -15,6 +15,7 @@ from database.marketplace_models import (
     InfluencerProfile, Package, EscrowHold, Notification
 )
 from auth.dependencies import get_current_user
+from auth.roles import UserType
 from schemas.marketplace import BidCreate, BidResponse, BidUpdate
 
 router = APIRouter(prefix="/bids", tags=["bids"])
@@ -343,6 +344,71 @@ async def withdraw_bid(
     db.commit()
     
     return {"message": "Bid withdrawn successfully"}
+
+
+@router.patch("/{bid_id}", response_model=BidResponse)
+async def update_bid(
+    bid_id: str,
+    bid_update: BidUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a bid. Only bid owner or admin can update.
+    Pending bids only for influencers.
+    """
+    bid = db.query(Bid).options(
+        joinedload(Bid.campaign),
+        joinedload(Bid.influencer)
+    ).filter(Bid.id == bid_id).first()
+    
+    if not bid:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Bid not found"
+        )
+    
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = bid.influencer.user_id == current_user.id
+    
+    if not (is_admin or is_owner):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to update this bid"
+        )
+    
+    # Influencer can only update if bid is PENDING
+    if not is_admin and bid.status != BidStatusDB.PENDING:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"You can only update pending bids (current status: {bid.status.value})"
+        )
+        
+    # Validate package if package_id is provided
+    if bid_update.package_id:
+        package = db.query(Package).filter(
+            Package.id == bid_update.package_id,
+            Package.influencer_id == bid.influencer_id,
+            Package.status == "active"
+        ).first()
+        if not package:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Package not found or not active"
+            )
+
+    # Update fields
+    update_data = bid_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if hasattr(bid, key):
+            setattr(bid, key, value)
+    
+    bid.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(bid)
+    
+    return _bid_to_response(bid, db)
 
 
 def _bid_to_response(bid: Bid, db: Session) -> dict:

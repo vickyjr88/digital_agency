@@ -112,6 +112,9 @@ class VerificationStatusDB(str, enum.Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
 
+# Alias for backward compatibility or ease of use
+VerificationStatus = VerificationStatusDB
+
 
 # ============================================================================
 # INFLUENCER PROFILE

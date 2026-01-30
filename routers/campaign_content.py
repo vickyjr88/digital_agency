@@ -14,8 +14,9 @@ from database.config import get_db
 from database.models import User, Trend, generate_uuid
 from database.marketplace_models import (
     Campaign, CampaignContent, CampaignContentStatus,
-    Bid, BidStatusDB, InfluencerProfile, VerificationStatus
+    Bid, BidStatusDB, InfluencerProfile
 )
+from schemas.marketplace import VerificationStatus
 from auth.dependencies import get_current_user
 from auth.decorators import require_user_type
 from core.generator import ContentGenerator
