@@ -230,8 +230,9 @@ async def get_open_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
-    # Check if user is admin
+    # Check if user is admin or owner
     is_admin = current_user and current_user.user_type == UserType.ADMIN
+    is_owner = current_user and campaign.brand_id == current_user.id
     
     # Public access for OPEN campaigns
     if campaign.status == CampaignStatusDB.OPEN:
@@ -240,11 +241,12 @@ async def get_open_campaign(
     elif is_admin:
         # Admins can view all campaigns
         pass
+    elif is_owner:
+        # Owners can view their own campaigns regardless of status
+        pass
     elif current_user:
-        # Authenticated users can view their own campaigns regardless of status
-        is_owner = campaign.brand_id == current_user.id
-        if not is_owner:
-            raise HTTPException(status_code=403, detail="You don't have access to this campaign")
+        # Other authenticated users cannot view non-open campaigns
+        raise HTTPException(status_code=403, detail="You don't have access to this campaign")
     else:
         # Non-authenticated users can only view OPEN campaigns
         raise HTTPException(status_code=403, detail="Campaign is not publicly available")
