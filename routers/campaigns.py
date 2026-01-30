@@ -424,11 +424,16 @@ async def submit_deliverable(
     ]:
         raise HTTPException(status_code=400, detail="Campaign is not accepting deliverables")
     
+    # Get influencer profile
+    current_profile = db.query(InfluencerProfile).filter(
+        InfluencerProfile.user_id == current_user.id
+    ).first()
+    
     # Create deliverable
     deliverable = Deliverable(
         campaign_id=campaign.id,
         bid_id=deliverable_data.bid_id,
-        influencer_id=profile.id if profile else None,
+        influencer_id=current_profile.id if current_profile else None,
         content_type=deliverable_data.content_type.value,
         platform=deliverable_data.platform.value,
         draft_url=deliverable_data.draft_url,
@@ -446,10 +451,9 @@ async def submit_deliverable(
     
     # Send notification to brand
     notification_svc = get_notification_service(db)
-    profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == campaign.influencer_id).first()
     notification_svc.notify_draft_submitted(
         brand_user_id=campaign.brand_id,
-        influencer_name=profile.display_name if profile else "Influencer",
+        influencer_name=current_profile.display_name if current_profile else "Influencer",
         campaign_id=campaign.id
     )
     
@@ -491,7 +495,7 @@ async def approve_deliverable(
     
     # Send notification to influencer
     notification_svc = get_notification_service(db)
-    profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == campaign.influencer_id).first()
+    profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == deliverable.influencer_id).first()
     if profile:
         notification_svc.notify_draft_approved(
             influencer_user_id=profile.user_id,
@@ -542,7 +546,7 @@ async def request_revision(
     
     # Send notification to influencer
     notification_svc = get_notification_service(db)
-    profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == campaign.influencer_id).first()
+    profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == deliverable.influencer_id).first()
     if profile:
         notification_svc.notify_revision_requested(
             influencer_user_id=profile.user_id,
