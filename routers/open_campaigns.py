@@ -16,7 +16,7 @@ from database.marketplace_models import (
     Campaign, CampaignStatusDB, Bid, BidStatusDB,
     InfluencerProfile, Package, Wallet, WalletTransaction,
     WalletTransactionTypeDB, WalletTransactionStatusDB,
-    EscrowHold, EscrowStatusDB
+    EscrowHold, EscrowStatusDB, Deliverable
 )
 from auth.dependencies import get_current_user, get_optional_current_user
 from auth.decorators import require_user_type
@@ -224,7 +224,8 @@ async def get_open_campaign(
     campaign = db.query(Campaign).options(
         joinedload(Campaign.brand_entity),
         joinedload(Campaign.brand),
-        joinedload(Campaign.bids).joinedload(Bid.influencer)
+        joinedload(Campaign.bids).joinedload(Bid.influencer),
+        joinedload(Campaign.deliverables)
     ).filter(Campaign.id == campaign_id).first()
     
     if not campaign:
@@ -266,6 +267,10 @@ async def get_open_campaign(
             None
         )
     
+    # Check if user should see deliverables
+    user_is_participant = (influencer_profile and campaign.influencer_id == influencer_profile.id)
+    show_deliverables = is_owner or is_admin or user_is_participant
+
     return {
         "id": campaign.id,
         "title": campaign.title,
@@ -283,6 +288,19 @@ async def get_open_campaign(
             "name": campaign.brand_entity.name if campaign.brand_entity else None,
         } if campaign.brand_entity else None,
         "is_owner": is_owner or is_admin,
+        "deliverables": [
+            {
+                "id": d.id,
+                "content_type": d.content_type,
+                "platform": d.platform.value if hasattr(d.platform, 'value') else d.platform,
+                "status": d.status.value if hasattr(d.status, 'value') else d.status,
+                "draft_url": d.draft_url,
+                "draft_caption": d.draft_caption,
+                "draft_description": d.draft_description,
+                "feedback": d.draft_description.split("--- REVISION REQUESTED ---")[-1].strip() if d.draft_description and "--- REVISION REQUESTED ---" in d.draft_description else None
+            }
+            for d in campaign.deliverables
+        ] if show_deliverables else [],
         "bids": [
             {
                 "id": b.id,
