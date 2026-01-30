@@ -393,3 +393,125 @@ def _bid_to_response(bid: Bid, db: Session) -> dict:
         "created_at": bid.created_at,
         "updated_at": bid.updated_at
     }
+
+
+# ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@router.get("/admin/all", response_model=List[BidResponse])
+async def get_all_bids_admin(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all bids across the platform (Admin only).
+    """
+    from auth.roles import UserType
+    
+    # Check if user is admin
+    if current_user.user_type != UserType.ADMIN:
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Build query
+    query = db.query(Bid).options(
+        joinedload(Bid.campaign),
+        joinedload(Bid.influencer),
+        joinedload(Bid.package)
+    )
+    
+    # Filter by status if provided
+    if status:
+        try:
+            status_enum = BidStatusDB(status)
+            query = query.filter(Bid.status == status_enum)
+        except ValueError:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {status}"
+            )
+    
+    # Order by most recent first
+    bids = query.order_by(Bid.created_at.desc()).all()
+    
+    return [_bid_to_response(bid, db) for bid in bids]
+
+
+@router.patch("/admin/{bid_id}/status", response_model=BidResponse)
+async def update_bid_status_admin(
+    bid_id: str,
+    status: str = Query(..., description="New status: accepted, rejected, pending"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update bid status (Admin only).
+    Admins can override bid status for moderation purposes.
+    """
+    from auth.roles import UserType
+    
+    # Check if user is admin
+    if current_user.user_type != UserType.ADMIN:
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Get the bid
+    bid = db.query(Bid).options(
+        joinedload(Bid.campaign),
+        joinedload(Bid.influencer)
+    ).filter(Bid.id == bid_id).first()
+    
+    if not bid:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Bid not found"
+        )
+    
+    # Validate status
+    try:
+        new_status = BidStatusDB(status)
+    except ValueError:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status: {status}. Must be one of: pending, accepted, rejected"
+        )
+    
+    # Update status
+    old_status = bid.status
+    bid.status = new_status
+    
+    # Update timestamps based on new status
+    if new_status == BidStatusDB.ACCEPTED:
+        bid.accepted_at = datetime.utcnow()
+        bid.rejected_at = None
+        bid.withdrawn_at = None
+    elif new_status == BidStatusDB.REJECTED:
+        bid.rejected_at = datetime.utcnow()
+        bid.accepted_at = None
+        bid.withdrawn_at = None
+    elif new_status == BidStatusDB.PENDING:
+        bid.accepted_at = None
+        bid.rejected_at = None
+        bid.withdrawn_at = None
+    
+    db.commit()
+    db.refresh(bid)
+    
+    # Create notification for influencer
+    notification = Notification(
+        user_id=bid.influencer.user_id,
+        title=f"Bid Status Updated by Admin",
+        message=f"Your bid on '{bid.campaign.title}' status was changed from {old_status.value} to {new_status.value} by an administrator.",
+        type="bid_update",
+        related_id=bid.id
+    )
+    db.add(notification)
+    db.commit()
+    
+    return _bid_to_response(bid, db)

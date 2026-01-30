@@ -23,7 +23,7 @@ from auth.decorators import require_user_type
 from auth.roles import UserType
 
 router = APIRouter(prefix="/open-campaigns", tags=["Open Campaigns"])
-MIN_CAMPAIGN_BUDGET = 100  # Minimum budget in cents (configurable)
+MIN_CAMPAIGN_BUDGET = 1000  # Minimum budget in cents (10 KES)
 
 
 # ============================================================================
