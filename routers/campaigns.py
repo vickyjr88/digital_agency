@@ -614,16 +614,21 @@ async def complete_campaign(
     
     # If a specific bid is provided, release payment for that bid
     if bid_id:
+        import logging
+        logging.info(f"Completing specific bid: {bid_id} for campaign: {campaign_id}")
         bid = db.query(Bid).filter(Bid.id == bid_id, Bid.campaign_id == campaign_id).first()
         if not bid:
+            logging.error(f"Bid {bid_id} not found for campaign {campaign_id}")
             raise HTTPException(status_code=404, detail="Bid not found")
         
         if bid.status == BidStatusDB.PAID:
+            logging.warning(f"Bid {bid_id} already paid")
             raise HTTPException(status_code=400, detail="Payment for this bid has already been released")
             
         _release_bid_escrow(bid, campaign, db)
         bid.status = BidStatusDB.PAID
         db.commit()
+        logging.info(f"Successfully released payment for bid {bid_id}")
         return {"status": "completed", "message": "Payment released for influencer"}
 
     # For standard campaigns, we require published status
@@ -825,11 +830,18 @@ def _can_access_campaign(user: User, campaign: Campaign, db: Session) -> bool:
 
 def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
     """Release escrow funds - either refund to brand or pay influencer."""
+    import logging
     if not campaign.escrow_id:
+        logging.warning(f"Campaign {campaign.id} has no escrow_id")
         return
     
     escrow = db.query(EscrowHold).filter(EscrowHold.id == campaign.escrow_id).first()
-    if not escrow or escrow.status != EscrowStatusDB.LOCKED:
+    if not escrow:
+        logging.error(f"Escrow {campaign.escrow_id} not found for campaign {campaign.id}")
+        return
+        
+    if escrow.status != EscrowStatusDB.LOCKED:
+        logging.warning(f"Escrow {escrow.id} status is {escrow.status}, expected LOCKED")
         return
     
     # Get wallets
@@ -855,7 +867,9 @@ def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
             completed_at=datetime.utcnow()
         )
         db.add(refund_tx)
+        db.flush()
         escrow.release_transaction_id = refund_tx.id
+        logging.info(f"Refunded {escrow.amount} to brand for campaign {campaign.id}")
     else:
         # Pay influencer
         influencer = db.query(InfluencerProfile).filter(
@@ -899,21 +913,33 @@ def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
                 completed_at=datetime.utcnow()
             )
             db.add(pay_tx)
+            db.flush()
             escrow.status = EscrowStatusDB.RELEASED
             escrow.released_at = datetime.utcnow()
             escrow.release_transaction_id = pay_tx.id
-        
-        db.commit()
+            logging.info(f"Paid {influencer_payment} to influencer for campaign {campaign.id}")
+        else:
+            logging.error(f"Influencer {campaign.influencer_id} not found for campaign {campaign.id}")
+    
+    db.commit()
 
 
 def _release_bid_escrow(bid: Bid, campaign: Campaign, db: Session):
     """Release escrow for a specific bid in an open campaign."""
+    import logging
     if not bid.escrow_id:
-        return
+        logging.error(f"Bid {bid.id} has no escrow_id")
+        raise HTTPException(status_code=400, detail="Bid has no linked escrow")
     
     escrow = db.query(EscrowHold).filter(EscrowHold.id == bid.escrow_id).first()
-    if not escrow or escrow.status != EscrowStatusDB.LOCKED:
-        return
+    if not escrow:
+        logging.error(f"Escrow {bid.escrow_id} not found for bid {bid.id}")
+        raise HTTPException(status_code=404, detail="Escrow hold not found")
+        
+    if escrow.status != EscrowStatusDB.LOCKED:
+        logging.warning(f"Escrow {escrow.id} status is {escrow.status}, expected LOCKED")
+        # If it's already released, we don't necessarily want to crash, but it explains why no transaction is created
+        raise HTTPException(status_code=400, detail=f"Escrow status is {escrow.status}, cannot release")
     
     # Get wallets
     brand_wallet = db.query(Wallet).filter(Wallet.user_id == campaign.brand_id).first()
@@ -921,10 +947,12 @@ def _release_bid_escrow(bid: Bid, campaign: Campaign, db: Session):
     # Pay influencer
     influencer_profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == bid.influencer_id).first()
     if not influencer_profile:
-        return
+        logging.error(f"Influencer profile {bid.influencer_id} not found for bid {bid.id}")
+        raise HTTPException(status_code=404, detail="Influencer profile not found")
         
     influencer_wallet = db.query(Wallet).filter(Wallet.user_id == influencer_profile.user_id).first()
     if not influencer_wallet:
+        logging.info(f"Creating missing wallet for influencer {influencer_profile.user_id}")
         influencer_wallet = Wallet(user_id=influencer_profile.user_id)
         db.add(influencer_wallet)
         db.flush()
@@ -955,6 +983,8 @@ def _release_bid_escrow(bid: Bid, campaign: Campaign, db: Session):
         completed_at=datetime.utcnow()
     )
     db.add(pay_tx)
+    db.flush() # Ensure pay_tx.id is generated
+    
     escrow.status = EscrowStatusDB.RELEASED
     escrow.released_at = datetime.utcnow()
     escrow.release_transaction_id = pay_tx.id
@@ -963,6 +993,7 @@ def _release_bid_escrow(bid: Bid, campaign: Campaign, db: Session):
     influencer_profile.completed_campaigns = (influencer_profile.completed_campaigns or 0) + 1
     
     db.commit()
+    logging.info(f"Successfully released {influencer_payment} for bid {bid.id}")
 
 
 def _campaign_to_response(campaign: Campaign, db: Session, include_deliverables: bool = False) -> CampaignResponse:

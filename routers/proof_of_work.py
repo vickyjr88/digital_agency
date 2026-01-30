@@ -14,7 +14,7 @@ from database.marketplace_models import (
     ProofOfWork, ProofOfWorkStatus,
     Bid, BidStatusDB,
     Campaign, CampaignStatusDB,
-    InfluencerProfile,
+    InfluencerProfile, VerificationStatus,
     EscrowHold, EscrowStatusDB,
     Wallet, WalletTransaction,
     WalletTransactionTypeDB, WalletTransactionStatusDB,
@@ -100,6 +100,12 @@ async def submit_proof_of_work(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Influencer profile not found"
+        )
+    
+    if influencer.verification_status != VerificationStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your influencer profile must be approved to submit proof of work."
         )
     
     # Get the bid

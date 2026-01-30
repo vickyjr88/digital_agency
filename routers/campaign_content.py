@@ -14,7 +14,7 @@ from database.config import get_db
 from database.models import User, Trend, generate_uuid
 from database.marketplace_models import (
     Campaign, CampaignContent, CampaignContentStatus,
-    Bid, BidStatusDB, InfluencerProfile
+    Bid, BidStatusDB, InfluencerProfile, VerificationStatus
 )
 from auth.dependencies import get_current_user
 from auth.decorators import require_user_type
@@ -82,6 +82,9 @@ async def get_influencer_campaigns(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Influencer profile not found"
         )
+    
+    if influencer.verification_status != VerificationStatus.APPROVED:
+        return {"campaigns": [], "count": 0, "message": "Your influencer profile must be approved to use AI content generation."}
     
     # Get accepted bids for this influencer
     accepted_bids = db.query(Bid).options(
@@ -164,6 +167,12 @@ async def generate_campaign_content(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Influencer profile not found. Complete onboarding first."
+        )
+    
+    if influencer.verification_status != VerificationStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your influencer profile must be approved to generate content."
         )
     
     # Get campaign

@@ -22,6 +22,7 @@ from schemas.marketplace import (
 )
 from auth.roles import UserType as UserTypeRole
 from auth.decorators import require_user_type
+from database.marketplace_models import Notification, Bid, BidStatusDB, VerificationStatus
 
 router = APIRouter(prefix="/disputes", tags=["Disputes"])
 
@@ -48,19 +49,27 @@ async def get_my_disputes(
             Campaign.brand_id == current_user.id
         ).subquery()
         
-        # Get campaigns where user is influencer
+        # Get campaigns where user is influencer (accepted bids for open campaigns)
         profile = db.query(InfluencerProfile).filter(
             InfluencerProfile.user_id == current_user.id
         ).first()
         
         if profile:
-            influencer_campaigns = db.query(Campaign.id).filter(
+            # Direct influencer campaigns
+            direct_influencer_campaigns = db.query(Campaign.id).filter(
                 Campaign.influencer_id == profile.id
+            ).subquery()
+            
+            # Accepted bids for open campaigns
+            bid_campaigns = db.query(Bid.campaign_id).filter(
+                Bid.influencer_id == profile.id,
+                Bid.status == BidStatusDB.ACCEPTED
             ).subquery()
             
             query = db.query(Dispute).filter(
                 Dispute.campaign_id.in_(brand_campaigns) |
-                Dispute.campaign_id.in_(influencer_campaigns)
+                Dispute.campaign_id.in_(direct_influencer_campaigns) |
+                Dispute.campaign_id.in_(bid_campaigns)
             )
         else:
             query = db.query(Dispute).filter(
@@ -102,12 +111,113 @@ async def get_dispute(
             profile = db.query(InfluencerProfile).filter(
                 InfluencerProfile.user_id == current_user.id
             ).first()
-            has_access = profile and profile.id == campaign.influencer_id
+            if profile:
+                has_access = profile.id == campaign.influencer_id
+                if not has_access:
+                    # Check accepted bids for open campaigns
+                    accepted_bid = db.query(Bid).filter(
+                        Bid.campaign_id == campaign.id,
+                        Bid.influencer_id == profile.id,
+                        Bid.status == BidStatusDB.ACCEPTED
+                    ).first()
+                    has_access = accepted_bid is not None
         
         if not has_access:
             raise HTTPException(status_code=403, detail="Access denied")
     
     return _dispute_to_response(dispute)
+
+@router.post("", response_model=DisputeResponse, status_code=status.HTTP_201_CREATED)
+async def raise_dispute(
+    dispute_data: DisputeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER))
+):
+    """
+    Raise a dispute for a campaign.
+    """
+    # 1. Get campaign
+    campaign = db.query(Campaign).filter(Campaign.id == dispute_data.campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    # 2. Verify access & eligibility
+    is_brand = campaign.brand_id == current_user.id
+    
+    profile = db.query(InfluencerProfile).filter(
+        InfluencerProfile.user_id == current_user.id
+    ).first()
+    
+    # Enforce Approved Influencer status if raising as influencer
+    if profile and profile.verification_status != VerificationStatus.APPROVED and not is_brand:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your influencer profile must be approved to raise disputes."
+        )
+
+    is_influencer = False
+    if profile:
+        if campaign.influencer_id == profile.id:
+            is_influencer = True
+        else:
+            # Check for accepted bid in open campaigns
+            accepted_bid = db.query(Bid).filter(
+                Bid.campaign_id == campaign.id,
+                Bid.influencer_id == profile.id,
+                Bid.status == BidStatusDB.ACCEPTED
+            ).first()
+            if accepted_bid:
+                is_influencer = True
+                
+    if not is_brand and not is_influencer:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="You are not authorized to raise a dispute for this campaign"
+        )
+
+    # 3. Prevent duplicate active disputes for same campaign/user
+    existing = db.query(Dispute).filter(
+        Dispute.campaign_id == campaign.id,
+        Dispute.raised_by == current_user.id,
+        Dispute.status == DisputeStatusDB.OPEN
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have an open dispute for this campaign")
+
+    # 4. Create dispute
+    dispute = Dispute(
+        campaign_id=campaign.id,
+        raised_by=current_user.id,
+        reason=dispute_data.reason,
+        evidence_urls=dispute_data.evidence_urls,
+        status=DisputeStatusDB.OPEN
+    )
+    db.add(dispute)
+    
+    # Update campaign status
+    campaign.status = CampaignStatusDB.DISPUTED
+    
+    # Notify other party
+    other_party_id = campaign.brand_id if is_influencer else (campaign.influencer.user_id if campaign.influencer_id else None)
+    
+    # If open campaign, find the brand or specific influencer (not fully handled here without bid_id in Dispute, 
+    # but we notify the brand if influencer raised, or we'd need to know which influencer the brand is disputing)
+    # For now, default to notifying brand if influencer raises.
+    if is_influencer:
+        notification = Notification(
+            user_id=campaign.brand_id,
+            type="dispute_raised",
+            title="Dispute Raised",
+            message=f"An influencer has raised a dispute for campaign: {campaign.title}",
+            data={"campaign_id": campaign.id, "dispute_id": dispute.id}
+        )
+        db.add(notification)
+    
+    db.commit()
+    db.refresh(dispute)
+    
+    return _dispute_to_response(dispute)
+
 
 
 # ============================================================================
