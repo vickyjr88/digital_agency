@@ -415,7 +415,13 @@ async def submit_deliverable(
     """
     campaign = _get_campaign_for_influencer(campaign_id, current_user, db)
     
-    if campaign.status not in [CampaignStatusDB.ACCEPTED, CampaignStatusDB.IN_PROGRESS, CampaignStatusDB.REVISION_REQUESTED]:
+    if campaign.status not in [
+        CampaignStatusDB.ACCEPTED, 
+        CampaignStatusDB.IN_PROGRESS, 
+        CampaignStatusDB.REVISION_REQUESTED,
+        CampaignStatusDB.DRAFT_SUBMITTED,
+        CampaignStatusDB.DRAFT_APPROVED
+    ]:
         raise HTTPException(status_code=400, detail="Campaign is not accepting deliverables")
     
     # Create deliverable
