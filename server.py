@@ -44,6 +44,7 @@ from routers.campaign_content import router as campaign_content_router
 from routers.proof_of_work import router as proof_of_work_router
 from routers.admin_withdrawals import router as admin_withdrawals_router
 from routers.payment_methods import router as payment_methods_router
+from routers.bids import router as bids_router
 
 load_dotenv()
 
@@ -168,6 +169,7 @@ app.include_router(campaign_content_router, prefix="/api/v2")
 app.include_router(proof_of_work_router, prefix="/api/v2")
 app.include_router(admin_withdrawals_router, prefix="/api/v2")
 app.include_router(payment_methods_router, prefix="/api/v2")
+app.include_router(bids_router, prefix="/api/v2")
 
 # Security
 security = HTTPBearer()

@@ -543,6 +543,55 @@ class DisputeResolve(BaseModel):
 
 
 # ============================================================================
+# BID SCHEMAS
+# ============================================================================
+
+class BidCreate(BaseModel):
+    """Schema for creating a bid."""
+    campaign_id: str
+    package_id: Optional[str] = None  # If using existing package
+    amount: Optional[int] = None  # Required if no package
+    deliverables_description: Optional[str] = None
+    deliverables_count: Optional[int] = 1
+    platform: Optional[str] = None
+    content_type: Optional[str] = None
+    timeline_days: Optional[int] = 7
+    proposal: Optional[str] = Field(None, max_length=2000)
+
+
+class BidUpdate(BaseModel):
+    """Schema for updating a bid."""
+    amount: Optional[int] = None
+    deliverables_description: Optional[str] = None
+    proposal: Optional[str] = None
+
+
+class BidResponse(BaseModel):
+    """Schema for bid response."""
+    id: str
+    campaign_id: str
+    campaign: Optional[dict] = None
+    influencer_id: str
+    influencer: Optional[dict] = None
+    package_id: Optional[str]
+    package: Optional[dict] = None
+    amount: int
+    currency: str = "KES"
+    deliverables_description: Optional[str]
+    deliverables_count: int
+    platform: Optional[str]
+    content_type: Optional[str]
+    timeline_days: int
+    proposal: Optional[str]
+    status: str
+    accepted_at: Optional[datetime]
+    rejected_at: Optional[datetime]
+    withdrawn_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+
+# ============================================================================
 # NOTIFICATION SCHEMAS
 # ============================================================================
 
