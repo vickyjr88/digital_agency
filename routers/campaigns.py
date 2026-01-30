@@ -13,9 +13,9 @@ from database.config import get_db
 from database.models import User, UserType, Brand
 from database.marketplace_models import (
     InfluencerProfile, Package, Campaign, Deliverable, Wallet, 
-    WalletTransaction, EscrowHold,
+    WalletTransaction, EscrowHold, Bid,
     CampaignStatusDB, DeliverableStatusDB, PackageStatusDB,
-    WalletTransactionTypeDB, WalletTransactionStatusDB, EscrowStatusDB
+    WalletTransactionTypeDB, WalletTransactionStatusDB, EscrowStatusDB, BidStatusDB
 )
 from schemas.marketplace import (
     CampaignCreate,
@@ -427,6 +427,8 @@ async def submit_deliverable(
     # Create deliverable
     deliverable = Deliverable(
         campaign_id=campaign.id,
+        bid_id=deliverable_data.bid_id,
+        influencer_id=profile.id if profile else None,
         content_type=deliverable_data.content_type.value,
         platform=deliverable_data.platform.value,
         draft_url=deliverable_data.draft_url,
@@ -437,9 +439,10 @@ async def submit_deliverable(
     )
     db.add(deliverable)
     
-    # Update campaign status
-    campaign.status = CampaignStatusDB.DRAFT_SUBMITTED
-    campaign.draft_submitted_at = datetime.utcnow()
+    # Update campaign status (only for targeted campaigns, keep open campaigns OPEN)
+    if campaign.status != CampaignStatusDB.OPEN:
+        campaign.status = CampaignStatusDB.DRAFT_SUBMITTED
+        campaign.draft_submitted_at = datetime.utcnow()
     
     # Send notification to brand
     notification_svc = get_notification_service(db)
@@ -481,7 +484,10 @@ async def approve_deliverable(
         raise HTTPException(status_code=404, detail="Deliverable not found")
     
     deliverable.status = DeliverableStatusDB.APPROVED
-    campaign.status = CampaignStatusDB.DRAFT_APPROVED
+    
+    # Update campaign status (only for targeted campaigns)
+    if campaign.status != CampaignStatusDB.OPEN:
+        campaign.status = CampaignStatusDB.DRAFT_APPROVED
     
     # Send notification to influencer
     notification_svc = get_notification_service(db)
@@ -529,8 +535,10 @@ async def request_revision(
     deliverable.status = DeliverableStatusDB.REJECTED
     deliverable.draft_description = f"{deliverable.draft_description or ''}\n\n--- REVISION REQUESTED ---\n{feedback}"
     
-    campaign.status = CampaignStatusDB.REVISION_REQUESTED
-    campaign.revisions_used = (campaign.revisions_used or 0) + 1
+    # Update campaign status (only for targeted campaigns)
+    if campaign.status != CampaignStatusDB.OPEN:
+        campaign.status = CampaignStatusDB.REVISION_REQUESTED
+        campaign.revisions_used = (campaign.revisions_used or 0) + 1
     
     # Send notification to influencer
     notification_svc = get_notification_service(db)
@@ -588,22 +596,43 @@ async def mark_published(
     
     return {"status": "published", "message": "Content marked as published. Awaiting brand confirmation."}
 
+from typing import Optional
+from fastapi import Query
+from database.marketplace_models import Bid, BidStatusDB, Dispute, DisputeStatusDB
 
 @router.post("/{campaign_id}/complete")
 async def complete_campaign(
     campaign_id: str,
+    bid_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER, UserTypeRole.ADMIN))
 ):
     """
-    Complete a campaign and release funds (Brand only).
+    Complete a campaign or a specific bid and release funds.
     """
     campaign = _get_campaign_for_brand(campaign_id, current_user, db)
     
-    if campaign.status not in [CampaignStatusDB.PUBLISHED, CampaignStatusDB.PENDING_REVIEW]:
+    # If a specific bid is provided, release payment for that bid
+    if bid_id:
+        bid = db.query(Bid).filter(Bid.id == bid_id, Bid.campaign_id == campaign_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="Bid not found")
+        
+        if bid.status == BidStatusDB.PAID:
+            raise HTTPException(status_code=400, detail="Payment for this bid has already been released")
+            
+        _release_bid_escrow(bid, campaign, db)
+        bid.status = BidStatusDB.PAID
+        db.commit()
+        return {"status": "completed", "message": "Payment released for influencer"}
+
+    # For standard campaigns, we require published status
+    is_open_campaign = campaign.status == CampaignStatusDB.OPEN or campaign.influencer_id is None
+    
+    if not is_open_campaign and campaign.status not in [CampaignStatusDB.PUBLISHED, CampaignStatusDB.PENDING_REVIEW]:
         raise HTTPException(status_code=400, detail="Campaign must be published before completion")
     
-    # Release escrow to influencer
+    # Release escrow to influencer (Standard flow)
     _release_escrow(campaign, db, refund=False)
     
     campaign.status = CampaignStatusDB.COMPLETED
@@ -676,7 +705,6 @@ async def raise_dispute(
     if not _can_access_campaign(current_user, campaign, db):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    from database.marketplace_models import Dispute, DisputeStatusDB
     
     # Create dispute
     dispute = Dispute(
@@ -728,7 +756,7 @@ def _get_campaign_for_influencer(campaign_id: str, user: User, db: Session) -> C
     # Check if this specific influencer is the assigned one OR has an accepted bid
     has_accepted_bid = False
     if profile:
-        from database.marketplace_models import Bid, BidStatusDB
+        
         accepted_bid = db.query(Bid).filter(
             Bid.campaign_id == campaign.id,
             Bid.influencer_id == profile.id,
@@ -783,7 +811,7 @@ def _can_access_campaign(user: User, campaign: Campaign, db: Session) -> bool:
         
     # Check for accepted bid (multi-influencer support)
     if profile:
-        from database.marketplace_models import Bid, BidStatusDB
+        
         accepted_bid = db.query(Bid).filter(
             Bid.campaign_id == campaign.id,
             Bid.influencer_id == profile.id,
@@ -858,8 +886,8 @@ def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
             influencer_wallet.balance += influencer_payment
             influencer_wallet.total_earned += influencer_payment
             
-            # Create release transaction
-            release_tx = WalletTransaction(
+            # Create payment transaction
+            pay_tx = WalletTransaction(
                 from_wallet_id=brand_wallet.id if brand_wallet else None,
                 to_wallet_id=influencer_wallet.id,
                 amount=escrow.amount,
@@ -870,11 +898,71 @@ def _release_escrow(campaign: Campaign, db: Session, refund: bool = False):
                 description=f"Payment for campaign {campaign.id}",
                 completed_at=datetime.utcnow()
             )
-            db.add(release_tx)
-            escrow.release_transaction_id = release_tx.id
+            db.add(pay_tx)
+            escrow.status = EscrowStatusDB.RELEASED
+            escrow.released_at = datetime.utcnow()
+            escrow.release_transaction_id = pay_tx.id
         
-        escrow.status = EscrowStatusDB.RELEASED
-        escrow.released_at = datetime.utcnow()
+        db.commit()
+
+
+def _release_bid_escrow(bid: Bid, campaign: Campaign, db: Session):
+    """Release escrow for a specific bid in an open campaign."""
+    if not bid.escrow_id:
+        return
+    
+    escrow = db.query(EscrowHold).filter(EscrowHold.id == bid.escrow_id).first()
+    if not escrow or escrow.status != EscrowStatusDB.LOCKED:
+        return
+    
+    # Get wallets
+    brand_wallet = db.query(Wallet).filter(Wallet.user_id == campaign.brand_id).first()
+    
+    # Pay influencer
+    influencer_profile = db.query(InfluencerProfile).filter(InfluencerProfile.id == bid.influencer_id).first()
+    if not influencer_profile:
+        return
+        
+    influencer_wallet = db.query(Wallet).filter(Wallet.user_id == influencer_profile.user_id).first()
+    if not influencer_wallet:
+        influencer_wallet = Wallet(user_id=influencer_profile.user_id)
+        db.add(influencer_wallet)
+        db.flush()
+    
+    # Calculate platform fee
+    platform_fee = int(escrow.amount * PLATFORM_FEE_PERCENT / 100)
+    influencer_payment = escrow.amount - platform_fee
+    
+    # Update brand wallet
+    if brand_wallet:
+        brand_wallet.hold_balance -= escrow.amount
+        brand_wallet.total_spent += escrow.amount
+    
+    # Pay influencer
+    influencer_wallet.balance += influencer_payment
+    influencer_wallet.total_earned += influencer_payment
+    
+    # Create payment transaction
+    pay_tx = WalletTransaction(
+        from_wallet_id=brand_wallet.id if brand_wallet else None,
+        to_wallet_id=influencer_wallet.id,
+        amount=escrow.amount,
+        fee=platform_fee,
+        net_amount=influencer_payment,
+        transaction_type=WalletTransactionTypeDB.ESCROW_RELEASE,
+        status=WalletTransactionStatusDB.COMPLETED,
+        description=f"Payment for bid on campaign {campaign.id}",
+        completed_at=datetime.utcnow()
+    )
+    db.add(pay_tx)
+    escrow.status = EscrowStatusDB.RELEASED
+    escrow.released_at = datetime.utcnow()
+    escrow.release_transaction_id = pay_tx.id
+    
+    # Update influencer completed campaigns count
+    influencer_profile.completed_campaigns = (influencer_profile.completed_campaigns or 0) + 1
+    
+    db.commit()
 
 
 def _campaign_to_response(campaign: Campaign, db: Session, include_deliverables: bool = False) -> CampaignResponse:

@@ -443,12 +443,16 @@ class DeliverableSubmit(BaseModel):
     draft_description: Optional[str] = None
     draft_caption: Optional[str] = None
     draft_media_urls: List[str] = []
+    bid_id: Optional[str] = None
+    influencer_id: Optional[str] = None
 
 
 class DeliverableResponse(BaseModel):
     """Schema for deliverable response."""
     id: str
     campaign_id: str
+    bid_id: Optional[str] = None
+    influencer_id: Optional[str] = None
     content_type: ContentTypeEnum
     platform: PlatformType
     

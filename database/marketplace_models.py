@@ -61,6 +61,8 @@ class BidStatusDB(str, enum.Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     WITHDRAWN = "withdrawn"
+    COMPLETED = "completed"
+    PAID = "paid"
 
 
 class DeliverableStatusDB(str, enum.Enum):
@@ -469,6 +471,8 @@ class Deliverable(Base):
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     campaign_id = Column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
+    bid_id = Column(String(36), ForeignKey("bids.id", ondelete="SET NULL"), nullable=True)
+    influencer_id = Column(String(36), ForeignKey("influencer_profiles.id", ondelete="CASCADE"), nullable=True)
     
     content_type = Column(String(50), nullable=False)  # post, story, reel, video
     platform = Column(Enum(PlatformTypeDB), nullable=False)
@@ -499,6 +503,8 @@ class Deliverable(Base):
     
     # Relationships
     campaign = relationship("Campaign", back_populates="deliverables")
+    bid = relationship("Bid", back_populates="deliverables")
+    influencer = relationship("InfluencerProfile")
 
 
 # ============================================================================
@@ -628,6 +634,7 @@ class Bid(Base):
     campaign = relationship("Campaign", back_populates="bids")
     influencer = relationship("InfluencerProfile", backref="bids")
     package = relationship("Package", backref="package_bids")
+    deliverables = relationship("Deliverable", back_populates="bid", cascade="all, delete-orphan")
     escrow = relationship("EscrowHold", foreign_keys=[escrow_id])
 
 

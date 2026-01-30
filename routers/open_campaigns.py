@@ -259,16 +259,17 @@ async def get_open_campaign(
             InfluencerProfile.user_id == current_user.id
         ).first()
     
-    # Get user's bid if influencer
-    user_bid = None
+    # Get user's bids if influencer
+    user_bids = []
     if influencer_profile:
-        user_bid = next(
-            (b for b in campaign.bids if b.influencer_id == influencer_profile.id),
-            None
-        )
+        user_bids = [b for b in campaign.bids if b.influencer_id == influencer_profile.id]
     
     # Check if user should see deliverables
-    user_is_participant = (influencer_profile and campaign.influencer_id == influencer_profile.id)
+    user_is_participant = False
+    if influencer_profile:
+        # Participant if they have an accepted bid
+        user_is_participant = any(b.status == BidStatusDB.ACCEPTED or b.status == BidStatusDB.PAID for b in user_bids)
+    
     show_deliverables = is_owner or is_admin or user_is_participant
 
     return {
@@ -297,6 +298,8 @@ async def get_open_campaign(
                 "draft_url": d.draft_url,
                 "draft_caption": d.draft_caption,
                 "draft_description": d.draft_description,
+                "bid_id": d.bid_id,
+                "influencer_id": d.influencer_id,
                 "feedback": d.draft_description.split("--- REVISION REQUESTED ---")[-1].strip() if d.draft_description and "--- REVISION REQUESTED ---" in d.draft_description else None
             }
             for d in campaign.deliverables
@@ -324,13 +327,16 @@ async def get_open_campaign(
             }
             for b in campaign.bids
         ] if is_owner else [],
-        "user_bid": {
-            "id": user_bid.id,
-            "amount": user_bid.amount,
-            "status": user_bid.status.value,
-            "proposal": user_bid.proposal,
-            "created_at": user_bid.created_at.isoformat()
-        } if user_bid else None,
+        "user_bids": [
+            {
+                "id": b.id,
+                "amount": b.amount,
+                "status": b.status.value,
+                "proposal": b.proposal,
+                "created_at": b.created_at.isoformat()
+            }
+            for b in user_bids
+        ],
         "bids_count": len(campaign.bids),
         "created_at": campaign.created_at.isoformat()
     }
@@ -394,18 +400,8 @@ async def submit_bid(
     if campaign.status != CampaignStatusDB.OPEN:
         raise HTTPException(status_code=400, detail="Campaign is not accepting bids")
     
-    # Check if already bid
-    existing_bid = db.query(Bid).filter(
-        Bid.campaign_id == campaign_id,
-        Bid.influencer_id == influencer.id,
-        Bid.status == BidStatusDB.PENDING
-    ).first()
-    
-    if existing_bid:
-        raise HTTPException(
-            status_code=400,
-            detail="You already have a pending bid on this campaign"
-        )
+    # Multiple bids are allowed per requirement
+    pass
     
     # Check budget
     budget_remaining = campaign.budget - campaign.budget_spent
