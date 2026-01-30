@@ -42,6 +42,8 @@ class PackageStatus(str, Enum):
 
 
 class CampaignStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
     PENDING = "pending"
     ACCEPTED = "accepted"
     IN_PROGRESS = "in_progress"
