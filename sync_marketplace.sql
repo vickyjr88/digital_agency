@@ -111,12 +111,18 @@ BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'deliverables') THEN
         UPDATE deliverables SET status = LOWER(status::text)::deliverablestatusdb 
         WHERE status::text != LOWER(status::text);
+        
+        UPDATE deliverables SET platform = LOWER(platform::text)::platformtypedb 
+        WHERE platform::text != LOWER(platform::text);
     END IF;
 
     -- Packages
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'packages') THEN
         UPDATE packages SET status = LOWER(status::text)::packagestatusdb 
         WHERE status::text != LOWER(status::text);
+        
+        UPDATE packages SET platform = LOWER(platform::text)::platformtypedb 
+        WHERE platform::text != LOWER(platform::text);
     END IF;
 
     -- Wallet Transactions
