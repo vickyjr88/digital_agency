@@ -41,6 +41,7 @@ class CampaignStatusDB(str, enum.Enum):
     # Open campaign statuses (bidding)
     OPEN = "open"              # Open for bids
     CLOSED = "closed"          # No longer accepting bids
+    
     # Direct/accepted campaign statuses
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -429,7 +430,7 @@ class Campaign(Base):
     brief = Column(JSON)  # CampaignBrief as JSON
     custom_requirements = Column(Text)
     
-    status = Column(Enum(CampaignStatusDB), default=CampaignStatusDB.PENDING)
+    status = Column(Enum(CampaignStatusDB, values_callable=lambda x: [e.value for e in x], name="campaignstatusdb"), default=CampaignStatusDB.PENDING)
     
     # Timeline
     deadline = Column(DateTime)
