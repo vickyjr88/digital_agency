@@ -1095,7 +1095,19 @@ def generate_content_on_demand(
     usage.content_generated_count += 1
     db.commit()
     
-    return new_content
+    return {
+        "id": new_content.id,
+        "brand_id": new_content.brand_id,
+        "trend_id": new_content.trend_id,
+        "trend": new_content.trend,
+        "tweet": new_content.tweet,
+        "facebook_post": new_content.facebook_post,
+        "instagram_reel_script": new_content.instagram_reel_script,
+        "tiktok_idea": new_content.tiktok_idea,
+        "status": new_content.status,
+        "generated_at": new_content.generated_at,
+        "scheduled_at": new_content.scheduled_at
+    }
 
 # ============================================================================
 # LEGACY ENDPOINTS (Backward Compatibility)
