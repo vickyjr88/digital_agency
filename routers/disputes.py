@@ -43,7 +43,7 @@ async def get_my_disputes(
     """
     # Get user's campaigns
     if current_user.user_type == UserType.ADMIN:
-        query = db.query(Dispute)
+        query = db.query(Dispute).options(joinedload(Dispute.raiser))
     else:
         # Get campaigns where user is brand
         brand_campaigns = db.query(Campaign.id).filter(
@@ -94,7 +94,7 @@ async def get_dispute(
     """
     Get dispute details.
     """
-    dispute = db.query(Dispute).filter(Dispute.id == dispute_id).first()
+    dispute = db.query(Dispute).options(joinedload(Dispute.raiser)).filter(Dispute.id == dispute_id).first()
     
     if not dispute:
         raise HTTPException(status_code=404, detail="Dispute not found")
@@ -473,5 +473,13 @@ def _dispute_to_response(dispute: Dispute) -> DisputeResponse:
         resolved_in_favor_of=dispute.resolved_in_favor_of,
         resolved_by=dispute.resolved_by,
         resolved_at=dispute.resolved_at,
-        created_at=dispute.created_at
+        created_at=dispute.created_at,
+        raiser_details={
+            "id": dispute.raiser.id,
+            "name": dispute.raiser.name,
+            "email": dispute.raiser.email,
+            "user_type": dispute.raiser.user_type.value if dispute.raiser.user_type else "unknown",
+            # Add profile link logic if applicable (e.g. for influencers)
+            "profile_url": f"/admin/user/{dispute.raiser.id}"
+        } if dispute.raiser else None
     )

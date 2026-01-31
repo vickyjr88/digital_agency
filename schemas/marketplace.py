@@ -534,6 +534,7 @@ class DisputeResponse(BaseModel):
     resolved_by: Optional[str]
     resolved_at: Optional[datetime]
     created_at: datetime
+    raiser_details: Optional[dict] = None
     
     class Config:
         from_attributes = True
