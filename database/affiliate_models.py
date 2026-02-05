@@ -393,7 +393,7 @@ class Order(Base):
     variant = relationship("ProductVariant")
     brand_profile = relationship("BrandProfile", backref="orders")
     attributed_influencer = relationship("InfluencerProfile", backref="attributed_orders")
-    affiliate_link = relationship("AffiliateLink", backref="orders")
+    affiliate_link = relationship("AffiliateLink", backref="link_orders")
     commission = relationship("AffiliateCommission", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
 
