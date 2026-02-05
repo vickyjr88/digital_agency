@@ -29,6 +29,7 @@ if DATABASE_URL:
 # Import all models so Alembic can detect them
 from database.models import Base
 from database import marketplace_models  # Also import marketplace models
+from database import affiliate_models  # Import affiliate commerce models
 
 target_metadata = Base.metadata
 

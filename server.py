@@ -46,6 +46,13 @@ from routers.admin_withdrawals import router as admin_withdrawals_router
 from routers.payment_methods import router as payment_methods_router
 from routers.bids import router as bids_router
 
+# Import affiliate commerce routers
+from routers.brand_profiles import router as brand_profiles_router
+from routers.products import router as products_router
+from routers.affiliate import router as affiliate_router
+from routers.orders import router as orders_router
+from routers.affiliate_analytics import router as affiliate_analytics_router
+
 load_dotenv()
 
 app = FastAPI(
@@ -62,13 +69,13 @@ def startup_event():
     
     # Import marketplace models to ensure they're created
     try:
-        from database import marketplace_models
+        from database import marketplace_models, affiliate_models
         from database.config import engine
         from database.models import Base
         Base.metadata.create_all(bind=engine)
-        print("✅ Database tables initialized!")
+        print("✅ Database tables initialized (including affiliate commerce)!")
     except Exception as e:
-        print(f"⚠️ Marketplace tables init warning: {e}")
+        print(f"⚠️ Tables init warning: {e}")
 
     
     # Seed Admin User and Brands
@@ -170,6 +177,15 @@ app.include_router(proof_of_work_router, prefix="/api/v2")
 app.include_router(admin_withdrawals_router, prefix="/api/v2")
 app.include_router(payment_methods_router, prefix="/api/v2")
 app.include_router(bids_router, prefix="/api/v2")
+
+# ============================================================================
+# AFFILIATE COMMERCE ROUTERS (Affiliate links use /api directly)
+# ============================================================================
+app.include_router(brand_profiles_router)  # /api/brand-profiles
+app.include_router(products_router)  # /api/products
+app.include_router(affiliate_router)  # /api/affiliate
+app.include_router(orders_router)  # /api/orders
+app.include_router(affiliate_analytics_router)  # /api/affiliate-analytics
 
 # Security
 security = HTTPBearer()
