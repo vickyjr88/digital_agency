@@ -153,7 +153,10 @@ class Product(Base):
     # Product Variants (sizes, colors, etc.)
     has_variants = Column(Boolean, default=False)
 
-    # Shipping Information (for customer knowledge)
+    # Digital Product Fields
+    is_digital = Column(Boolean, default=False)  # True for downloadable products (e-books, etc.)
+
+    # Shipping Information (for physical products)
     requires_shipping = Column(Boolean, default=True)
     weight = Column(Numeric(8, 2))  # kg
     dimensions = Column(JSON)  # {length, width, height} in cm
@@ -187,6 +190,7 @@ class Product(Base):
     affiliate_approvals = relationship("AffiliateApproval", back_populates="product", cascade="all, delete-orphan")
     affiliate_links = relationship("AffiliateLink", back_populates="product", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="product", cascade="all, delete-orphan")
+    digital_files = relationship("DigitalFile", back_populates="product", cascade="all, delete-orphan")
 
 
 class ProductVariant(Base):
@@ -476,3 +480,64 @@ class AffiliateAnalytics(Base):
     influencer = relationship("InfluencerProfile")
     product = relationship("Product")
     brand_profile = relationship("BrandProfile")
+
+
+# ============================================================================
+# DIGITAL PRODUCTS
+# ============================================================================
+
+class DigitalPurchaseStatusDB(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    REFUNDED = "refunded"
+
+
+class DigitalFile(Base):
+    """Files attached to digital products (e-books, PDFs, templates, etc.)."""
+    __tablename__ = "digital_files"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    product_id = Column(String(36), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+
+    file_name = Column(String(255), nullable=False)       # "my-ebook.pdf"
+    file_url = Column(Text, nullable=False)                # S3/Cloudinary URL
+    file_size = Column(Integer)                            # bytes
+    file_type = Column(String(50))                         # "application/pdf", "application/epub+zip"
+    version = Column(String(50), default="1.0")            # Versioning for updates
+
+    is_preview = Column(Boolean, default=False)            # Free preview file
+    download_count = Column(Integer, default=0)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    product = relationship("Product", back_populates="digital_files")
+
+
+class DigitalPurchase(Base):
+    """Tracks customer access to purchased digital products."""
+    __tablename__ = "digital_purchases"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    order_id = Column(String(36), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    product_id = Column(String(36), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+
+    customer_email = Column(String(255), nullable=False, index=True)
+    access_token = Column(String(100), unique=True, nullable=False, index=True)  # Secure download token
+
+    download_count = Column(Integer, default=0)
+    max_downloads = Column(Integer, default=5)             # Download limit
+    expires_at = Column(DateTime)                          # Optional expiry
+
+    status = Column(
+        Enum(DigitalPurchaseStatusDB, values_callable=lambda x: [e.value for e in x], name="digitalpurchasestatusdb"),
+        default=DigitalPurchaseStatusDB.COMPLETED
+    )
+
+    created_at = Column(DateTime, server_default=func.now())
+    last_downloaded_at = Column(DateTime)
+
+    # Relationships
+    product = relationship("Product", backref="digital_purchases")
+    order = relationship("Order", backref="digital_purchase")

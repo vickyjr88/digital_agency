@@ -16,6 +16,12 @@ class CommissionType(str, Enum):
     FIXED = "fixed"
 
 
+class DigitalPurchaseStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    REFUNDED = "refunded"
+
+
 class ProductStatus(str, Enum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -192,6 +198,9 @@ class ProductCreate(BaseModel):
     weight: Optional[Decimal] = Field(None, gt=0)
     dimensions: Optional[Dict[str, float]] = None
 
+    # Digital product
+    is_digital: bool = False
+
     # Approval settings
     auto_approve: bool = False
     approval_criteria: Optional[Dict[str, Any]] = None
@@ -238,6 +247,7 @@ class ProductUpdate(BaseModel):
     approval_criteria: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     status: Optional[ProductStatus] = None
+    is_digital: Optional[bool] = None
 
 
 class ProductResponse(BaseModel):
@@ -278,6 +288,7 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     variants: List[ProductVariantResponse] = []
+    is_digital: bool = False
 
     class Config:
         from_attributes = True
@@ -301,6 +312,7 @@ class ProductListItem(BaseModel):
     total_clicks: int
     total_orders: int
     active_affiliates_count: int
+    is_digital: bool = False
 
     class Config:
         from_attributes = True
@@ -373,13 +385,16 @@ class OrderCreate(BaseModel):
     quantity: int = Field(1, gt=0)
     customer_name: str = Field(..., min_length=2)
     customer_email: EmailStr
-    customer_phone: str = Field(..., description="Phone number with country code")
+    customer_phone: Optional[str] = Field("", description="Phone number with country code (optional for digital)")
     customer_notes: Optional[str] = None
     affiliate_code: Optional[str] = Field(None, description="Affiliate tracking code from URL")
+    is_digital: bool = False  # Set to true for digital product orders
 
     @validator('customer_phone')
-    def validate_phone(cls, v):
-        if not v.startswith('+'):
+    def validate_phone(cls, v, values):
+        if values.get('is_digital'):
+            return v or ''  # Phone optional for digital
+        if v and not v.startswith('+'):
             raise ValueError('Phone number must include country code (e.g., +254)')
         return v
 
@@ -522,3 +537,51 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     details: Optional[Any] = None
+
+
+# ============================================================================
+# DIGITAL PRODUCT SCHEMAS
+# ============================================================================
+
+class DigitalFileCreate(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=255)
+    file_url: str = Field(..., min_length=1)
+    file_size: Optional[int] = Field(None, ge=0)
+    file_type: Optional[str] = None
+    version: str = "1.0"
+    is_preview: bool = False
+
+
+class DigitalFileResponse(BaseModel):
+    id: str
+    product_id: str
+    file_name: str
+    file_url: str
+    file_size: Optional[int]
+    file_type: Optional[str]
+    version: str
+    is_preview: bool
+    download_count: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DigitalPurchaseResponse(BaseModel):
+    id: str
+    order_id: str
+    product_id: str
+    customer_email: str
+    access_token: str
+    download_count: int
+    max_downloads: int
+    expires_at: Optional[datetime]
+    status: DigitalPurchaseStatus
+    created_at: datetime
+    last_downloaded_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
