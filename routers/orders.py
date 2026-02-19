@@ -1,5 +1,5 @@
 # Orders Endpoints for Affiliate Commerce
-# NO PAYMENT PROCESSING - Just contact information exchange
+# Includes Paystack payment processing integration
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session, joinedload
@@ -8,8 +8,12 @@ from datetime import datetime
 from decimal import Decimal
 import random
 import string
+import os
 
-from database.models import User
+from core.minio_service import generate_download_url
+from core.paystack_service import PaystackService
+
+from database.models import User, UserRole
 from database.marketplace_models import InfluencerProfile, Wallet, WalletTransaction
 from database.affiliate_models import (
     Product,
@@ -149,6 +153,10 @@ async def place_order(
     # Generate order number
     order_number = generate_order_number()
 
+    # Digital products are auto-fulfilled on order placement
+    initial_status = "fulfilled" if product.is_digital else "pending"
+    now = datetime.utcnow()
+
     # Create order
     new_order = Order(
         id=generate_uuid(),
@@ -168,7 +176,8 @@ async def place_order(
         total_amount=total_amount,
         currency=product.currency,
         **commission_info,
-        status="pending"
+        status=initial_status,
+        fulfilled_at=now if product.is_digital else None,
     )
 
     db.add(new_order)
@@ -244,6 +253,72 @@ async def place_order(
             facebook_page=brand_profile.facebook_page
         )
 
+        # For digital products: auto-pay commission immediately (order is already fulfilled)
+        if product.is_digital and attributed_influencer_id:
+            try:
+                commission = db.query(AffiliateCommission).filter(
+                    AffiliateCommission.order_id == new_order.id,
+                    AffiliateCommission.status == "pending"
+                ).first()
+
+                if commission:
+                    influencer = db.query(InfluencerProfile).filter(
+                        InfluencerProfile.id == commission.influencer_id
+                    ).first()
+
+                    if influencer:
+                        wallet = db.query(Wallet).filter(
+                            Wallet.user_id == influencer.user_id
+                        ).first()
+
+                        if not wallet:
+                            wallet = Wallet(
+                                id=generate_uuid(),
+                                user_id=influencer.user_id,
+                                balance=0,
+                                hold_balance=0,
+                                total_earned=0,
+                                total_spent=0
+                            )
+                            db.add(wallet)
+                            db.flush()
+
+                        commission_cents = int(commission.net_commission * 100)
+                        wallet_tx = WalletTransaction(
+                            id=generate_uuid(),
+                            to_wallet_id=wallet.id,
+                            amount=commission_cents,
+                            fee=int(commission.platform_fee * 100),
+                            net_amount=commission_cents,
+                            transaction_type="affiliate_commission",
+                            status="completed",
+                            payment_method="affiliate_commission",
+                            description=f"Commission from digital order #{new_order.order_number}",
+                            completed_at=now,
+                        )
+                        db.add(wallet_tx)
+                        db.flush()
+
+                        wallet.balance += commission_cents
+                        wallet.total_earned = (wallet.total_earned or 0) + commission_cents
+
+                        commission.status = "paid"
+                        commission.paid_at = now
+                        commission.wallet_transaction_id = wallet_tx.id
+
+                        db.commit()
+            except Exception:
+                # Don't fail the order if commission payout has an issue
+                db.rollback()
+
+        # For digital products: include presigned download URL in the response
+        if product.is_digital and product.digital_file_key:
+            try:
+                response_data.download_url = generate_download_url(product.digital_file_key)
+                response_data.download_file_name = product.digital_file_name
+            except Exception:
+                pass  # Don't fail the order if URL generation has an issue
+
         return response_data
 
     except Exception as e:
@@ -251,6 +326,437 @@ async def place_order(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to place order: {str(e)}"
+        )
+
+
+# ============================================================================
+# PAYMENT PROCESSING WITH PAYSTACK
+# ============================================================================
+
+@router.post("/initialize-payment")
+async def initialize_order_payment(
+    order_data: OrderCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Initialize Paystack payment for a product purchase.
+    Returns payment URL for customer to complete payment.
+    """
+    # Get product
+    product = db.query(Product).filter(
+        Product.id == order_data.product_id,
+        Product.status == "active"
+    ).first()
+
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found or not available"
+        )
+
+    # Get variant if specified
+    variant = None
+    if order_data.variant_id:
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.id == order_data.variant_id,
+            ProductVariant.product_id == product.id
+        ).first()
+
+    # Check stock if tracking
+    if product.track_inventory:
+        available_stock = variant.stock_quantity if variant else product.stock_quantity
+        if available_stock is not None and available_stock < order_data.quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient stock. Only {available_stock} available."
+            )
+
+    # Calculate pricing
+    unit_price = variant.price if (variant and variant.price) else product.price
+    total_amount = unit_price * order_data.quantity
+
+    # Convert to kobo (Paystack uses lowest currency unit)
+    amount_in_kobo = int(float(total_amount) * 100)
+
+    # Build callback URL
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    callback_url = f"{frontend_url}/shop/payment/verify"
+
+    # Prepare metadata
+    metadata = {
+        "product_id": order_data.product_id,
+        "product_name": product.name,
+        "quantity": order_data.quantity,
+        "variant_id": order_data.variant_id,
+        "customer_name": order_data.customer_name,
+        "customer_phone": order_data.customer_phone,
+        "customer_notes": order_data.customer_notes,
+        "affiliate_code": order_data.affiliate_code,
+        "is_digital": product.is_digital,
+        "type": "product_purchase",
+        "custom_fields": [
+            {
+                "display_name": "Product",
+                "variable_name": "product_name",
+                "value": product.name
+            },
+            {
+                "display_name": "Quantity",
+                "variable_name": "quantity",
+                "value": str(order_data.quantity)
+            }
+        ]
+    }
+
+    try:
+        # Initialize Paystack transaction
+        paystack = PaystackService()
+        response = paystack.initialize_transaction(
+            email=order_data.customer_email,
+            amount=amount_in_kobo,
+            callback_url=callback_url,
+            metadata=metadata
+        )
+
+        if not response.get("status"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to initialize payment"
+            )
+
+        data = response.get("data", {})
+
+        return {
+            "status": "success",
+            "authorization_url": data.get("authorization_url"),
+            "access_code": data.get("access_code"),
+            "reference": data.get("reference"),
+            "amount": total_amount,
+            "currency": product.currency or "KES"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Payment initialization failed: {str(e)}"
+        )
+
+
+@router.get("/verify-payment/{reference}")
+async def verify_order_payment(
+    reference: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Verify Paystack payment and create order if successful.
+    """
+    try:
+        # Verify transaction with Paystack
+        paystack = PaystackService()
+        response = paystack.verify_transaction(reference)
+
+        if not response.get("status"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment verification failed"
+            )
+
+        data = response.get("data", {})
+
+        # Check if payment was successful
+        if data.get("status") != "success":
+            return {
+                "status": "failed",
+                "reference": reference,
+                "amount": data.get("amount", 0),
+                "currency": data.get("currency", "KES"),
+                "message": "Payment was not successful"
+            }
+
+        # Check if order already exists for this reference
+        existing_order = db.query(Order).filter(
+            Order.payment_reference == reference
+        ).first()
+
+        if existing_order:
+            # Return existing order
+            response_data = {
+                "status": "success",
+                "reference": reference,
+                "amount": data.get("amount", 0),
+                "currency": data.get("currency", "KES"),
+                "order_id": existing_order.id,
+                "order_number": existing_order.order_number,
+                "message": "Order already created"
+            }
+
+            # Add download URL for digital products
+            product = db.query(Product).filter(
+                Product.id == existing_order.product_id
+            ).first()
+
+            if product and product.is_digital and product.digital_file_key:
+                try:
+                    response_data["download_url"] = generate_download_url(product.digital_file_key)
+                    response_data["download_file_name"] = product.digital_file_name
+                except Exception:
+                    pass
+
+            # Add brand contact for physical products
+            if product and not product.is_digital:
+                brand_profile = db.query(BrandProfile).filter(
+                    BrandProfile.id == product.brand_profile_id
+                ).first()
+
+                if brand_profile:
+                    response_data["brand_contact"] = {
+                        "whatsapp_number": brand_profile.whatsapp_number,
+                        "business_location": brand_profile.business_location,
+                        "business_hours": brand_profile.business_hours,
+                        "preferred_contact_method": brand_profile.preferred_contact_method,
+                        "phone_number": brand_profile.phone_number,
+                        "business_email": brand_profile.business_email,
+                        "website_url": brand_profile.website_url,
+                        "instagram_handle": brand_profile.instagram_handle,
+                        "facebook_page": brand_profile.facebook_page
+                    }
+
+            return response_data
+
+        # Extract metadata
+        metadata = data.get("metadata", {})
+
+        # Get product
+        product = db.query(Product).filter(
+            Product.id == metadata.get("product_id")
+        ).first()
+
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found"
+            )
+
+        # Get variant if specified
+        variant = None
+        if metadata.get("variant_id"):
+            variant = db.query(ProductVariant).filter(
+                ProductVariant.id == metadata.get("variant_id"),
+                ProductVariant.product_id == product.id
+            ).first()
+
+        # Calculate pricing
+        unit_price = variant.price if (variant and variant.price) else product.price
+        quantity = int(metadata.get("quantity", 1))
+        total_amount = unit_price * quantity
+
+        # Calculate commission
+        commission_info = calculate_commission(product, total_amount)
+
+        # Attribution - check affiliate code
+        attributed_influencer_id = None
+        affiliate_link_id = None
+
+        if metadata.get("affiliate_code"):
+            affiliate_link = db.query(AffiliateLink).filter(
+                AffiliateLink.affiliate_code == metadata.get("affiliate_code"),
+                AffiliateLink.product_id == product.id
+            ).first()
+
+            if affiliate_link:
+                attributed_influencer_id = affiliate_link.influencer_id
+                affiliate_link_id = affiliate_link.id
+
+        # Generate order number
+        order_number = generate_order_number()
+
+        # Digital products are auto-fulfilled
+        initial_status = "fulfilled" if product.is_digital else "pending"
+        now = datetime.utcnow()
+
+        # Create order
+        new_order = Order(
+            id=generate_uuid(),
+            order_number=order_number,
+            product_id=product.id,
+            variant_id=variant.id if variant else None,
+            quantity=quantity,
+            brand_profile_id=product.brand_profile_id,
+            attributed_influencer_id=attributed_influencer_id,
+            affiliate_code=metadata.get("affiliate_code"),
+            affiliate_link_id=affiliate_link_id,
+            customer_name=metadata.get("customer_name"),
+            customer_email=data.get("customer", {}).get("email"),
+            customer_phone=metadata.get("customer_phone"),
+            customer_notes=metadata.get("customer_notes"),
+            unit_price=unit_price,
+            total_amount=total_amount,
+            currency=product.currency,
+            payment_status="paid",
+            payment_reference=reference,
+            payment_method="paystack",
+            paid_at=now,
+            **commission_info,
+            status=initial_status,
+            fulfilled_at=now if product.is_digital else None,
+        )
+
+        db.add(new_order)
+
+        # Create commission record (pending for physical, paid for digital)
+        if attributed_influencer_id:
+            commission = AffiliateCommission(
+                id=generate_uuid(),
+                order_id=new_order.id,
+                influencer_id=attributed_influencer_id,
+                product_id=product.id,
+                gross_commission=commission_info["commission_amount"],
+                platform_fee=commission_info["platform_fee_amount"],
+                net_commission=commission_info["net_commission"],
+                status="pending",
+                commission_type=commission_info["commission_type"],
+                commission_rate=commission_info["commission_rate"]
+            )
+            db.add(commission)
+
+            # Update affiliate link stats
+            if affiliate_link_id:
+                affiliate_link = db.query(AffiliateLink).filter(
+                    AffiliateLink.id == affiliate_link_id
+                ).first()
+                if affiliate_link:
+                    affiliate_link.orders += 1
+
+            # Mark click as converted
+            recent_click = db.query(AffiliateClick).filter(
+                AffiliateClick.affiliate_link_id == affiliate_link_id,
+                AffiliateClick.converted == False
+            ).order_by(AffiliateClick.clicked_at.desc()).first()
+
+            if recent_click:
+                recent_click.converted = True
+                recent_click.order_id = new_order.id
+
+        # Update product stats
+        product.total_orders += 1
+
+        # Deduct inventory if tracking
+        if product.track_inventory:
+            if variant:
+                variant.stock_quantity -= quantity
+                if variant.stock_quantity <= 0:
+                    variant.status = "out_of_stock"
+            else:
+                product.stock_quantity -= quantity
+                if product.stock_quantity <= 0:
+                    product.in_stock = False
+
+        # For digital products: auto-pay commission immediately
+        if product.is_digital and attributed_influencer_id:
+            try:
+                commission = db.query(AffiliateCommission).filter(
+                    AffiliateCommission.order_id == new_order.id,
+                    AffiliateCommission.status == "pending"
+                ).first()
+
+                if commission:
+                    influencer = db.query(InfluencerProfile).filter(
+                        InfluencerProfile.id == commission.influencer_id
+                    ).first()
+
+                    if influencer:
+                        wallet = db.query(Wallet).filter(
+                            Wallet.user_id == influencer.user_id
+                        ).first()
+
+                        if not wallet:
+                            wallet = Wallet(
+                                id=generate_uuid(),
+                                user_id=influencer.user_id,
+                                balance=0,
+                                hold_balance=0,
+                                total_earned=0,
+                                total_spent=0
+                            )
+                            db.add(wallet)
+                            db.flush()
+
+                        commission_cents = int(commission.net_commission * 100)
+                        wallet_tx = WalletTransaction(
+                            id=generate_uuid(),
+                            to_wallet_id=wallet.id,
+                            amount=commission_cents,
+                            fee=int(commission.platform_fee * 100),
+                            net_amount=commission_cents,
+                            transaction_type="affiliate_commission",
+                            status="completed",
+                            payment_method="affiliate_commission",
+                            description=f"Commission from digital order #{new_order.order_number}",
+                            completed_at=now,
+                        )
+                        db.add(wallet_tx)
+                        db.flush()
+
+                        wallet.balance += commission_cents
+                        wallet.total_earned = (wallet.total_earned or 0) + commission_cents
+
+                        commission.status = "paid"
+                        commission.paid_at = now
+                        commission.wallet_transaction_id = wallet_tx.id
+            except Exception:
+                # Don't fail the order if commission payout has an issue
+                pass
+
+        db.commit()
+        db.refresh(new_order)
+
+        # Prepare response
+        response_data = {
+            "status": "success",
+            "reference": reference,
+            "amount": data.get("amount", 0),
+            "currency": data.get("currency", "KES"),
+            "order_id": new_order.id,
+            "order_number": new_order.order_number,
+            "message": "Payment successful, order created"
+        }
+
+        # For digital products: include presigned download URL
+        if product.is_digital and product.digital_file_key:
+            try:
+                response_data["download_url"] = generate_download_url(product.digital_file_key)
+                response_data["download_file_name"] = product.digital_file_name
+            except Exception:
+                pass
+
+        # For physical products: include brand contact info
+        if not product.is_digital:
+            brand_profile = db.query(BrandProfile).filter(
+                BrandProfile.id == product.brand_profile_id
+            ).first()
+
+            if brand_profile:
+                response_data["brand_contact"] = {
+                    "whatsapp_number": brand_profile.whatsapp_number,
+                    "business_location": brand_profile.business_location,
+                    "business_hours": brand_profile.business_hours,
+                    "preferred_contact_method": brand_profile.preferred_contact_method,
+                    "phone_number": brand_profile.phone_number,
+                    "business_email": brand_profile.business_email,
+                    "website_url": brand_profile.website_url,
+                    "instagram_handle": brand_profile.instagram_handle,
+                    "facebook_page": brand_profile.facebook_page
+                }
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Payment verification failed: {str(e)}"
         )
 
 
@@ -349,7 +855,7 @@ async def get_order_details(
     is_brand = brand_profile and order.brand_profile_id == brand_profile.id
     is_influencer = influencer and order.attributed_influencer_id == influencer.id
 
-    if not (is_brand or is_influencer or current_user.role == "admin"):
+    if not (is_brand or is_influencer or current_user.role == UserRole.ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this order"

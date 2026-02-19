@@ -53,6 +53,7 @@ class PreferredContactMethod(str, Enum):
 # ============================================================================
 
 class BrandProfileCreate(BaseModel):
+    brand_id: str = Field(..., description="ID of the Brand this profile belongs to")
     whatsapp_number: str = Field(..., description="WhatsApp number in format +254XXXXXXXXX")
     business_location: str = Field(..., description="Physical business location or address")
     business_hours: Optional[str] = Field(None, description="e.g., 'Mon-Sat, 9AM-6PM'")
@@ -92,7 +93,8 @@ class BrandProfileUpdate(BaseModel):
 class BrandProfileResponse(BaseModel):
     id: str
     user_id: str
-    brand_id: Optional[str]
+    brand_id: str
+    brand_name: Optional[str] = None   # populated from the related Brand.name
     whatsapp_number: str
     business_location: str
     business_hours: Optional[str]
@@ -183,11 +185,15 @@ class ProductCreate(BaseModel):
     thumbnail: Optional[str] = None
     video_url: Optional[str] = None
 
+    # Digital product (file uploaded separately via /products/{id}/upload-file)
+    is_digital: bool = False
+    digital_preview_url: Optional[str] = None
+
     # Variants
     has_variants: bool = False
     variants: Optional[List[ProductVariantCreate]] = None
 
-    # Shipping
+    # Shipping (irrelevant for digital products but kept for physical ones)
     requires_shipping: bool = True
     weight: Optional[Decimal] = Field(None, gt=0)
     dimensions: Optional[Dict[str, float]] = None
@@ -230,6 +236,8 @@ class ProductUpdate(BaseModel):
     images: Optional[List[str]] = None
     thumbnail: Optional[str] = None
     video_url: Optional[str] = None
+    is_digital: Optional[bool] = None
+    digital_preview_url: Optional[str] = None
     has_variants: Optional[bool] = None
     requires_shipping: Optional[bool] = None
     weight: Optional[Decimal] = None
@@ -262,6 +270,13 @@ class ProductResponse(BaseModel):
     images: Optional[List[str]]
     thumbnail: Optional[str]
     video_url: Optional[str]
+    # Digital product fields
+    is_digital: bool = False
+    digital_file_name: Optional[str] = None
+    digital_file_size: Optional[int] = None
+    digital_file_type: Optional[str] = None
+    digital_preview_url: Optional[str] = None
+    has_digital_file: bool = False   # convenience flag (True when file is uploaded)
     has_variants: bool
     requires_shipping: bool
     weight: Optional[Decimal]
@@ -282,6 +297,13 @@ class ProductResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @classmethod
+    def from_orm(cls, obj):
+        # Populate convenience flag
+        data = super().from_orm(obj)
+        data.has_digital_file = bool(obj.digital_file_key)
+        return data
+
 
 class ProductListItem(BaseModel):
     """Simplified product for list views"""
@@ -298,12 +320,20 @@ class ProductListItem(BaseModel):
     thumbnail: Optional[str]
     in_stock: bool
     status: str
+    is_digital: bool = False
+    has_digital_file: bool = False
     total_clicks: int
     total_orders: int
     active_affiliates_count: int
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_orm(cls, obj):
+        data = super().from_orm(obj)
+        data.has_digital_file = bool(obj.digital_file_key)
+        return data
 
 
 # ============================================================================
@@ -411,6 +441,7 @@ class OrderResponse(BaseModel):
     status: OrderStatus
     brand_notes: Optional[str]
     cancellation_reason: Optional[str]
+    digital_download_count: int = 0
     created_at: datetime
     contacted_at: Optional[datetime]
     fulfilled_at: Optional[datetime]
@@ -419,6 +450,9 @@ class OrderResponse(BaseModel):
     # Additional data
     brand_contact: Optional[BrandContactInfo] = None
     product: Optional[ProductListItem] = None
+    # Populated for digital products on order placement
+    download_url: Optional[str] = None
+    download_file_name: Optional[str] = None
 
     class Config:
         from_attributes = True

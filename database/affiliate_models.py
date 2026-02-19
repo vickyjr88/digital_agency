@@ -62,8 +62,8 @@ class BrandProfile(Base):
     __tablename__ = "brand_profiles"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
-    brand_id = Column(String(36), ForeignKey("brands.id", ondelete="CASCADE"), nullable=True)  # Link to existing Brand entity
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)   # owner; NOT unique — one profile per brand
+    brand_id = Column(String(36), ForeignKey("brands.id", ondelete="CASCADE"), unique=True, nullable=False)  # one profile per brand
 
     # Contact Information (REQUIRED for selling products)
     whatsapp_number = Column(String(20), nullable=False)  # Format: +254XXXXXXXXX
@@ -152,6 +152,14 @@ class Product(Base):
 
     # Product Variants (sizes, colors, etc.)
     has_variants = Column(Boolean, default=False)
+
+    # Digital Product Fields
+    is_digital = Column(Boolean, default=False)          # True = PDF / digital file
+    digital_file_key = Column(String(1000))               # MinIO object key
+    digital_file_name = Column(String(500))               # Original filename
+    digital_file_size = Column(Integer)                   # Bytes
+    digital_file_type = Column(String(100))               # MIME type e.g. application/pdf
+    digital_preview_url = Column(String(500))             # Optional public preview image
 
     # Shipping Information (for customer knowledge)
     requires_shipping = Column(Boolean, default=True)
@@ -377,6 +385,9 @@ class Order(Base):
         Enum(OrderStatusDB, values_callable=lambda x: [e.value for e in x], name="orderstatusdb"),
         default=OrderStatusDB.PENDING
     )
+
+    # Digital delivery tracking
+    digital_download_count = Column(Integer, default=0)  # How many times buyer downloaded
 
     # Brand notes
     brand_notes = Column(Text)  # Brand's private notes about the order

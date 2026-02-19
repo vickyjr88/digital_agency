@@ -1,11 +1,39 @@
 # Product Catalog Endpoints for Affiliate Commerce
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
 from typing import List, Optional
 from decimal import Decimal
 import re
+
+from core.minio_service import (
+    upload_digital_product,
+    generate_download_url,
+    delete_digital_product,
+    upload_product_image,
+    delete_product_image,
+)
+
+ALLOWED_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+}
+MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+ALLOWED_DIGITAL_MIME_TYPES = {
+    "application/pdf",
+    "application/epub+zip",
+    "application/zip",
+    "application/x-zip-compressed",
+    "video/mp4",
+    "audio/mpeg",
+    "audio/mp3",
+}
+MAX_DIGITAL_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
 
 from database.models import User
 from database.affiliate_models import (
@@ -389,3 +417,296 @@ async def get_product_affiliates_count(
     ).count()
 
     return {"product_id": product_id, "affiliates_count": count}
+
+
+# ============================================================================
+# DIGITAL PRODUCT FILE MANAGEMENT
+# ============================================================================
+
+@router.post("/{product_id}/upload-file", response_model=dict, status_code=status.HTTP_200_OK)
+async def upload_digital_file(
+    product_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload the digital file (PDF, EPUB, ZIP, MP4, MP3) for a product.
+    Only the brand owner can upload.  File is stored in MinIO.
+    Returns updated file metadata.
+    """
+    # Verify ownership
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id
+    ).first()
+    if not brand_profile:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.brand_profile_id == brand_profile.id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # Validate MIME type
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ALLOWED_DIGITAL_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{content_type}' not allowed. Supported: PDF, EPUB, ZIP, MP4, MP3."
+        )
+
+    # Read file bytes & validate size
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_DIGITAL_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File exceeds maximum size of 200 MB."
+        )
+
+    # Delete previous file if one existed
+    if product.digital_file_key:
+        delete_digital_product(product.digital_file_key)
+
+    # Upload to MinIO
+    result = upload_digital_product(
+        file_bytes=file_bytes,
+        original_filename=file.filename or "download",
+        content_type=content_type,
+        product_id=product_id,
+    )
+
+    # Persist metadata to DB
+    product.is_digital = True
+    product.digital_file_key = result["object_key"]
+    product.digital_file_name = result["file_name"]
+    product.digital_file_size = result["file_size"]
+    product.digital_file_type = result["content_type"]
+    product.requires_shipping = False  # digital = no shipping
+
+    db.commit()
+    db.refresh(product)
+
+    return {
+        "success": True,
+        "message": "Digital file uploaded successfully.",
+        "file_name": product.digital_file_name,
+        "file_size": product.digital_file_size,
+        "file_type": product.digital_file_type,
+    }
+
+
+@router.get("/{product_id}/download-file", status_code=status.HTTP_200_OK)
+async def get_digital_file_download_url(
+    product_id: str,
+    order_id: Optional[str] = Query(None, description="Order ID to verify purchase"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate a presigned download URL for a purchased digital product.
+    - Brand owners can download their own products directly.
+    - Buyers must supply a valid order_id that belongs to them and is not cancelled.
+    URL expires in 24 hours.
+    """
+    from database.affiliate_models import Order
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    if not product.is_digital or not product.digital_file_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No digital file for this product")
+
+    # Check if requester is the brand owner
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id,
+        BrandProfile.id == product.brand_profile_id
+    ).first()
+
+    if not brand_profile:
+        # Must be a verified buyer
+        if not order_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Provide your order_id to download this product."
+            )
+        order = db.query(Order).filter(
+            Order.id == order_id,
+            Order.product_id == product_id,
+            Order.customer_email == current_user.email,
+        ).first()
+        if not order:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No valid purchase found for this product")
+        if order.status == "cancelled":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Order has been cancelled")
+
+        # Increment download counter
+        order.digital_download_count = (order.digital_download_count or 0) + 1
+        db.commit()
+
+    # Generate presigned URL (24 h expiry)
+    url = generate_download_url(product.digital_file_key)
+    return {
+        "download_url": url,
+        "file_name": product.digital_file_name,
+        "file_type": product.digital_file_type,
+        "expires_in_seconds": 86400,
+    }
+
+
+@router.delete("/{product_id}/delete-file", response_model=dict)
+async def delete_digital_file(
+    product_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove the digital file from a product (brand owner only)."""
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id
+    ).first()
+    if not brand_profile:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.brand_profile_id == brand_profile.id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    if product.digital_file_key:
+        delete_digital_product(product.digital_file_key)
+
+    product.digital_file_key = None
+    product.digital_file_name = None
+    product.digital_file_size = None
+    product.digital_file_type = None
+    db.commit()
+
+    return {"success": True, "message": "Digital file deleted."}
+
+
+# ============================================================================
+# PRODUCT IMAGE MANAGEMENT
+# ============================================================================
+
+@router.post("/{product_id}/upload-image", response_model=dict, status_code=status.HTTP_200_OK)
+async def upload_product_image_endpoint(
+    product_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload a product image (JPEG, PNG, WebP, GIF) for a product.
+    Only the brand owner can upload.  File is stored in MinIO.
+    Returns the presigned URL (7-day) and object key.
+    Up to 10 images per product are supported.
+    """
+    # Verify ownership
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id
+    ).first()
+    if not brand_profile:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.brand_profile_id == brand_profile.id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # Validate MIME type
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ALLOWED_IMAGE_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{content_type}' not allowed. Supported: JPEG, PNG, WebP, GIF."
+        )
+
+    # Read file bytes & validate size
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_IMAGE_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image exceeds maximum size of 10 MB."
+        )
+
+    # Upload to MinIO (returns object_key, url, file_name, file_size, content_type)
+    result = upload_product_image(
+        file_bytes=file_bytes,
+        original_filename=file.filename or "image.jpg",
+        content_type=content_type,
+        product_id=product_id,
+    )
+
+    # Append to product.images list and keep thumbnail as first image
+    existing_images = list(product.images or [])
+    existing_images.append(result["url"])
+    product.images = existing_images
+    if not product.thumbnail:
+        product.thumbnail = result["url"]
+
+    db.commit()
+    db.refresh(product)
+
+    return {
+        "success": True,
+        "object_key": result["object_key"],
+        "url": result["url"],
+        "file_name": result["file_name"],
+        "file_size": result["file_size"],
+        "content_type": result["content_type"],
+        "images": product.images,
+        "thumbnail": product.thumbnail,
+    }
+
+
+@router.delete("/{product_id}/delete-image", response_model=dict)
+async def delete_product_image_endpoint(
+    product_id: str,
+    object_key: str = Query(..., description="MinIO object key to delete"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a specific product image by its MinIO object key.
+    Removes the image from MinIO and from the product's images list.
+    Brand owner only.
+    """
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id
+    ).first()
+    if not brand_profile:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.brand_profile_id == brand_profile.id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    # Delete from MinIO
+    delete_product_image(object_key)
+
+    # The images list stores presigned URLs; filter out by matching object_key substring
+    existing_images = list(product.images or [])
+    updated_images = [img for img in existing_images if object_key not in img]
+    product.images = updated_images
+
+    # Reset thumbnail if it was deleted
+    if product.thumbnail and object_key in product.thumbnail:
+        product.thumbnail = updated_images[0] if updated_images else None
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Image deleted.",
+        "images": product.images,
+        "thumbnail": product.thumbnail,
+    }

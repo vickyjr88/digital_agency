@@ -211,9 +211,14 @@ def _get_user_type(user: User) -> UserType:
         val = user.user_type.value if hasattr(user.user_type, 'value') else user.user_type
         if val:
             try:
-                return UserType(str(val).lower())
+                # Try the value as-is first (handles uppercase DB values), then uppercase
+                raw = str(val)
+                try:
+                    return UserType(raw)
+                except ValueError:
+                    return UserType(raw.upper())
             except ValueError:
                 pass
-    
+
     # Default to brand for backward compatibility
     return UserType.BRAND

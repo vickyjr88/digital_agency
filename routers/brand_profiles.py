@@ -1,11 +1,12 @@
 # Brand Profile Management Endpoints for Affiliate Commerce
+# One BrandProfile per Brand (not per User).
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional
+from typing import List
 
-from database.models import User
+from database.models import User, Brand
 from database.affiliate_models import BrandProfile
 from schemas.affiliate import (
     BrandProfileCreate,
@@ -25,6 +26,45 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
+def _profile_to_response(profile: BrandProfile) -> BrandProfileResponse:
+    """Serialize a BrandProfile ORM object, injecting brand_name from the relationship."""
+    data = {c.name: getattr(profile, c.name) for c in profile.__table__.columns}
+    data["brand_name"] = profile.brand.name if profile.brand else None
+    return BrandProfileResponse(**data)
+
+
+# ── Authenticated helpers ─────────────────────────────────────────────────────
+
+def _get_owned_brand(brand_id: str, user_id: str, db: Session) -> Brand:
+    """Return brand if it belongs to the current user, else 404/403."""
+    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    if not brand:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand not found")
+    if brand.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this brand")
+    return brand
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/my-profiles", response_model=List[BrandProfileResponse])
+async def list_my_brand_profiles(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Return all brand profiles owned by the current user
+    (one per brand the user has set up for affiliate commerce).
+    """
+    profiles = (
+        db.query(BrandProfile)
+        .join(Brand, BrandProfile.brand_id == Brand.id)
+        .filter(Brand.user_id == current_user.id)
+        .all()
+    )
+    return [_profile_to_response(p) for p in profiles]
+
+
 @router.post("/", response_model=BrandProfileResponse, status_code=status.HTTP_201_CREATED)
 async def create_brand_profile(
     profile_data: BrandProfileCreate,
@@ -32,29 +72,25 @@ async def create_brand_profile(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Create or update brand profile with contact information.
-    Required for brands to sell products.
+    Create a brand profile for one of the user's brands.
+    Each brand can have at most one profile.
     """
-    # Check if profile already exists
-    existing_profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
-    ).first()
+    # Verify brand ownership
+    _get_owned_brand(profile_data.brand_id, current_user.id, db)
 
-    if existing_profile:
+    # Prevent duplicates
+    existing = db.query(BrandProfile).filter(
+        BrandProfile.brand_id == profile_data.brand_id
+    ).first()
+    if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Brand profile already exists. Use PUT to update."
+            detail="A profile already exists for this brand. Use PUT to update it."
         )
 
-    # Get user's brand entity if exists
-    from database.models import Brand
-    brand = db.query(Brand).filter(Brand.user_id == current_user.id).first()
-
-    # Create new profile
     new_profile = BrandProfile(
         id=generate_uuid(),
         user_id=current_user.id,
-        brand_id=brand.id if brand else None,
         **profile_data.dict()
     )
 
@@ -62,8 +98,8 @@ async def create_brand_profile(
         db.add(new_profile)
         db.commit()
         db.refresh(new_profile)
-        return new_profile
-    except IntegrityError as e:
+        return _profile_to_response(new_profile)
+    except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -71,14 +107,17 @@ async def create_brand_profile(
         )
 
 
-@router.get("/me", response_model=BrandProfileResponse)
-async def get_my_brand_profile(
+@router.get("/brand/{brand_id}", response_model=BrandProfileResponse)
+async def get_brand_profile_for_brand(
+    brand_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get current user's brand profile."""
+    """Get the brand profile for a specific brand (must be the owner)."""
+    _get_owned_brand(brand_id, current_user.id, db)
+
     profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
+        BrandProfile.brand_id == brand_id
     ).first()
 
     if not profile:
@@ -86,19 +125,21 @@ async def get_my_brand_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Brand profile not found. Create one first."
         )
+    return _profile_to_response(profile)
 
-    return profile
 
-
-@router.put("/me", response_model=BrandProfileResponse)
-async def update_my_brand_profile(
+@router.put("/brand/{brand_id}", response_model=BrandProfileResponse)
+async def update_brand_profile_for_brand(
+    brand_id: str,
     profile_data: BrandProfileUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update current user's brand profile."""
+    """Update the brand profile for a specific brand (must be the owner)."""
+    _get_owned_brand(brand_id, current_user.id, db)
+
     profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
+        BrandProfile.brand_id == brand_id
     ).first()
 
     if not profile:
@@ -107,7 +148,6 @@ async def update_my_brand_profile(
             detail="Brand profile not found. Create one first with POST /api/brand-profiles/"
         )
 
-    # Update fields
     update_data = profile_data.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(profile, field, value)
@@ -115,7 +155,7 @@ async def update_my_brand_profile(
     try:
         db.commit()
         db.refresh(profile)
-        return profile
+        return _profile_to_response(profile)
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -124,14 +164,17 @@ async def update_my_brand_profile(
         )
 
 
-@router.get("/{brand_profile_id}", response_model=BrandProfileResponse)
-async def get_brand_profile(
-    brand_profile_id: str,
-    db: Session = Depends(get_db)
+@router.delete("/brand/{brand_id}", response_model=SuccessResponse)
+async def delete_brand_profile_for_brand(
+    brand_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get any brand profile by ID (public view)."""
+    """Delete the brand profile for a specific brand (must be the owner)."""
+    _get_owned_brand(brand_id, current_user.id, db)
+
     profile = db.query(BrandProfile).filter(
-        BrandProfile.id == brand_profile_id
+        BrandProfile.brand_id == brand_id
     ).first()
 
     if not profile:
@@ -140,7 +183,57 @@ async def get_brand_profile(
             detail="Brand profile not found"
         )
 
-    return profile
+    from database.affiliate_models import Product
+    active_products = db.query(Product).filter(
+        Product.brand_profile_id == profile.id,
+        Product.status == "active"
+    ).count()
+
+    if active_products > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete profile. You have {active_products} active products. Archive them first."
+        )
+
+    db.delete(profile)
+    db.commit()
+    return SuccessResponse(success=True, message="Brand profile deleted successfully")
+
+
+# ── Legacy /me endpoints (kept for backward compatibility, use first profile) ─
+
+@router.get("/me", response_model=BrandProfileResponse)
+async def get_my_brand_profile_legacy(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Legacy: returns the first brand profile for the current user."""
+    profile = (
+        db.query(BrandProfile)
+        .join(Brand, BrandProfile.brand_id == Brand.id)
+        .filter(Brand.user_id == current_user.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand profile not found. Create one first at /api/brand-profiles/"
+        )
+    return _profile_to_response(profile)
+
+
+# ── Public endpoints ──────────────────────────────────────────────────────────
+
+@router.get("/{brand_profile_id}", response_model=BrandProfileResponse)
+async def get_brand_profile_public(
+    brand_profile_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get any brand profile by ID (public view)."""
+    profile = db.query(BrandProfile).filter(BrandProfile.id == brand_profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand profile not found")
+    return _profile_to_response(profile)
 
 
 @router.get("/{brand_profile_id}/contact", response_model=BrandContactInfo)
@@ -148,10 +241,7 @@ async def get_brand_contact_info(
     brand_profile_id: str,
     db: Session = Depends(get_db)
 ):
-    """
-    Get brand contact information (public endpoint).
-    Shown to customers after they place an order.
-    """
+    """Get brand contact information (public endpoint, shown to customers after order)."""
     profile = db.query(BrandProfile).filter(
         BrandProfile.id == brand_profile_id,
         BrandProfile.is_active == True
@@ -173,42 +263,4 @@ async def get_brand_contact_info(
         website_url=profile.website_url,
         instagram_handle=profile.instagram_handle,
         facebook_page=profile.facebook_page
-    )
-
-
-@router.delete("/me", response_model=SuccessResponse)
-async def delete_my_brand_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Delete current user's brand profile."""
-    profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Brand profile not found"
-        )
-
-    # Check if brand has active products
-    from database.affiliate_models import Product
-    active_products = db.query(Product).filter(
-        Product.brand_profile_id == profile.id,
-        Product.status == "active"
-    ).count()
-
-    if active_products > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot delete profile. You have {active_products} active products. Archive them first."
-        )
-
-    db.delete(profile)
-    db.commit()
-
-    return SuccessResponse(
-        success=True,
-        message="Brand profile deleted successfully"
     )
