@@ -390,6 +390,9 @@ class Order(Base):
     # Digital delivery tracking
     digital_download_count = Column(Integer, default=0)  # How many times buyer downloaded
 
+    # Payment tracking
+    payment_reference = Column(String(100), unique=True, nullable=True, index=True)  # Paystack reference
+
     # Brand notes
     brand_notes = Column(Text)  # Brand's private notes about the order
     cancellation_reason = Column(Text)
