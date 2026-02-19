@@ -17,12 +17,10 @@ depends_on = None
 
 def upgrade():
     # Add payment_reference column to orders table
-    with op.batch_alter_table('orders') as batch_op:
-        batch_op.add_column(sa.Column('payment_reference', sa.String(100), nullable=True))
-        batch_op.create_index('ix_orders_payment_reference', ['payment_reference'], unique=True)
+    op.add_column('orders', sa.Column('payment_reference', sa.String(100), nullable=True))
+    op.create_index('ix_orders_payment_reference', 'orders', ['payment_reference'], unique=True)
 
 
 def downgrade():
-    with op.batch_alter_table('orders') as batch_op:
-        batch_op.drop_index('ix_orders_payment_reference')
-        batch_op.drop_column('payment_reference')
+    op.drop_index('ix_orders_payment_reference', table_name='orders')
+    op.drop_column('orders', 'payment_reference')
