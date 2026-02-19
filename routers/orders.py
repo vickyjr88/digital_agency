@@ -9,6 +9,7 @@ from decimal import Decimal
 import random
 import string
 import os
+import secrets
 
 from core.minio_service import generate_download_url
 from core.paystack_service import PaystackService
@@ -22,7 +23,8 @@ from database.affiliate_models import (
     AffiliateLink,
     AffiliateClick,
     AffiliateCommission,
-    BrandProfile
+    BrandProfile,
+    DigitalPurchase
 )
 from schemas.affiliate import (
     OrderCreate,
@@ -234,6 +236,106 @@ async def place_order(
         db.commit()
         db.refresh(new_order)
 
+        # === DIGITAL PRODUCT AUTO-FULFILLMENT ===
+        if product.is_digital:
+            # Auto-fulfill digital orders immediately
+            new_order.status = "fulfilled"
+            new_order.fulfilled_at = datetime.utcnow()
+
+            # Generate secure access token for downloads
+            access_token = secrets.token_urlsafe(32)
+
+            digital_purchase = DigitalPurchase(
+                id=generate_uuid(),
+                order_id=new_order.id,
+                product_id=product.id,
+                customer_email=order_data.customer_email,
+                access_token=access_token,
+                download_count=0,
+                max_downloads=5,
+                status="completed"
+            )
+            db.add(digital_purchase)
+
+            # Pay commission immediately for digital products
+            if attributed_influencer_id:
+                commission = db.query(AffiliateCommission).filter(
+                    AffiliateCommission.order_id == new_order.id,
+                    AffiliateCommission.status == "pending"
+                ).first()
+
+                if commission:
+                    influencer = db.query(InfluencerProfile).filter(
+                        InfluencerProfile.id == commission.influencer_id
+                    ).first()
+
+                    wallet = db.query(Wallet).filter(
+                        Wallet.user_id == influencer.user_id
+                    ).first()
+
+                    if not wallet:
+                        wallet = Wallet(
+                            id=generate_uuid(),
+                            user_id=influencer.user_id,
+                            balance=0,
+                            hold_balance=0,
+                            total_earned=0,
+                            total_spent=0
+                        )
+                        db.add(wallet)
+                        db.flush()
+
+                    wallet_transaction = WalletTransaction(
+                        id=generate_uuid(),
+                        to_wallet_id=wallet.id,
+                        amount=int(commission.net_commission * 100),
+                        fee=int(commission.platform_fee * 100),
+                        net_amount=int(commission.net_commission * 100),
+                        transaction_type="affiliate_commission",
+                        status="completed",
+                        payment_method="affiliate_commission",
+                        description=f"Digital sale commission - order #{new_order.order_number}",
+                        completed_at=datetime.utcnow()
+                    )
+                    db.add(wallet_transaction)
+                    db.flush()
+
+                    wallet.balance += int(commission.net_commission * 100)
+                    wallet.total_earned += int(commission.net_commission * 100)
+
+                    commission.status = "paid"
+                    commission.paid_at = datetime.utcnow()
+                    commission.wallet_transaction_id = wallet_transaction.id
+
+                    if order_data.affiliate_code and affiliate_link_id:
+                        aff_link = db.query(AffiliateLink).filter(
+                            AffiliateLink.id == affiliate_link_id
+                        ).first()
+                        if aff_link:
+                            aff_link.total_sales_amount += total_amount
+                            aff_link.total_commission_earned += commission.net_commission
+
+                product.total_sales_amount += total_amount
+
+            db.commit()
+            db.refresh(new_order)
+
+            # Return response with access token for digital products
+            response_data = OrderResponse.from_orm(new_order)
+            response_data.brand_contact = BrandContactInfo(
+                whatsapp_number=product.brand_profile.whatsapp_number,
+                business_location=product.brand_profile.business_location,
+                business_hours=product.brand_profile.business_hours,
+                preferred_contact_method=product.brand_profile.preferred_contact_method,
+                phone_number=product.brand_profile.phone_number,
+                business_email=product.brand_profile.business_email,
+                website_url=product.brand_profile.website_url,
+                instagram_handle=product.brand_profile.instagram_handle,
+                facebook_page=product.brand_profile.facebook_page
+            )
+            return response_data
+
+        # === PHYSICAL PRODUCT - Return brand contact info ===
         # Load brand profile for contact info
         brand_profile = db.query(BrandProfile).filter(
             BrandProfile.id == product.brand_profile_id
