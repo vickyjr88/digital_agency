@@ -44,9 +44,9 @@ class UserRole(str, enum.Enum):
 
 # New enum for marketplace user types
 class UserType(str, enum.Enum):
-    BRAND = "brand"
-    INFLUENCER = "influencer"
-    ADMIN = "admin"
+    BRAND = "BRAND"
+    INFLUENCER = "INFLUENCER"
+    ADMIN = "ADMIN"
 
 
 class PaymentStatus(str, enum.Enum):
