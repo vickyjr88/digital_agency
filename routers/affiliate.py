@@ -23,6 +23,7 @@ from schemas.affiliate import (
     AffiliateLinkResponse,
     SuccessResponse
 )
+
 from database.config import get_db
 from auth.dependencies import get_current_user
 
@@ -312,12 +313,12 @@ async def review_affiliate_application(
 # AFFILIATE LINKS
 # ============================================================================
 
-@router.get("/links", response_model=List[AffiliateLinkResponse])
+@router.get("/links")
 async def get_my_affiliate_links(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all affiliate links for current influencer."""
+    """Get all affiliate links for current influencer, enriched with product details."""
     influencer = db.query(InfluencerProfile).filter(
         InfluencerProfile.user_id == current_user.id
     ).first()
@@ -329,7 +330,37 @@ async def get_my_affiliate_links(
         AffiliateLink.influencer_id == influencer.id
     ).order_by(AffiliateLink.generated_at.desc()).all()
 
-    return links
+    result = []
+    for link in links:
+        product = link.product  # via relationship
+        result.append({
+            "id": link.id,
+            "influencer_id": link.influencer_id,
+            "product_id": link.product_id,
+            "affiliate_code": link.affiliate_code,
+            "link_url": link.link_url,
+            "short_url": link.short_url,
+            "qr_code_url": link.qr_code_url,
+            "clicks": link.clicks,
+            "orders": link.orders,
+            "total_sales_amount": float(link.total_sales_amount or 0),
+            "total_commission_earned": float(link.total_commission_earned or 0),
+            "generated_at": link.generated_at.isoformat() if link.generated_at else None,
+            "last_clicked_at": link.last_clicked_at.isoformat() if link.last_clicked_at else None,
+            # Product details for frontend display
+            "product": {
+                "name": product.name if product else "Unknown Product",
+                "slug": product.slug if product else None,
+                "thumbnail": product.thumbnail if product else None,
+                "category": product.category if product else None,
+                "price": float(product.price) if product else 0,
+                "commission_type": product.commission_type if product else None,
+                "commission_rate": float(product.commission_rate) if product and product.commission_rate else None,
+                "fixed_commission": float(product.fixed_commission) if product and product.fixed_commission else None,
+            } if product else None
+        })
+
+    return result
 
 
 @router.get("/links/{product_id}", response_model=AffiliateLinkResponse)
