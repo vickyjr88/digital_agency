@@ -2,7 +2,7 @@
 # Handles dispute resolution for campaigns
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
 

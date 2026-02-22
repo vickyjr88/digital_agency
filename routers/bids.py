@@ -9,13 +9,12 @@ from typing import List, Optional
 from datetime import datetime
 
 from database.config import get_db
-from database.models import User
+from database.models import User, UserType
 from database.marketplace_models import (
     Bid, BidStatusDB, Campaign, CampaignStatusDB,
     InfluencerProfile, Package, EscrowHold, Notification
 )
 from auth.dependencies import get_current_user
-from auth.roles import UserType
 from schemas.marketplace import BidCreate, BidResponse, BidUpdate
 
 router = APIRouter(prefix="/bids", tags=["bids"])
@@ -466,8 +465,6 @@ async def get_all_bids_admin(
     """
     Get all bids across the platform (Admin only).
     """
-    from auth.roles import UserType
-    
     # Check if user is admin
     if current_user.user_type != UserType.ADMIN:
         raise HTTPException(
@@ -510,8 +507,6 @@ async def update_bid_status_admin(
     Update bid status (Admin only).
     Admins can override bid status for moderation purposes.
     """
-    from auth.roles import UserType
-    
     # Check if user is admin
     if current_user.user_type != UserType.ADMIN:
         raise HTTPException(
