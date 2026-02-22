@@ -40,7 +40,9 @@ from database.affiliate_models import (
     BrandProfile,
     Product,
     ProductVariant,
-    AffiliateLink
+    AffiliateLink,
+    AffiliateClick,
+    Order
 )
 from schemas.affiliate import (
     ProductCreate,
@@ -195,13 +197,13 @@ async def list_products(
     return products
 
 
-@router.get("/my-products", response_model=List[ProductResponse])
+@router.get("/my-products", response_model=List[ProductListItem])
 async def list_my_products(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all products belonging to current brand."""
+    """Get all products belonging to current brand with stats."""
     brand_profile = db.query(BrandProfile).filter(
         BrandProfile.user_id == current_user.id
     ).first()
@@ -211,12 +213,56 @@ async def list_my_products(
 
     query = db.query(Product).filter(
         Product.brand_profile_id == brand_profile.id
-    ).options(joinedload(Product.variants))
+    )
 
     if status:
         query = query.filter(Product.status == status)
 
-    return query.all()
+    products = query.all()
+
+    # Build response with stats
+    result = []
+    for product in products:
+        # Count clicks
+        clicks_count = db.query(func.count(AffiliateClick.id)).filter(
+            AffiliateClick.product_id == product.id
+        ).scalar() or 0
+
+        # Count orders
+        orders_count = db.query(func.count(Order.id)).filter(
+            Order.product_id == product.id
+        ).scalar() or 0
+
+        # Count active affiliates
+        affiliates_count = db.query(func.count(AffiliateLink.id.distinct())).filter(
+            AffiliateLink.product_id == product.id,
+            AffiliateLink.status == "active"
+        ).scalar() or 0
+
+        # Create response item
+        product_dict = {
+            "id": product.id,
+            "name": product.name,
+            "slug": product.slug,
+            "category": product.category,
+            "price": product.price,
+            "compare_at_price": product.compare_at_price,
+            "currency": product.currency,
+            "commission_type": product.commission_type,
+            "commission_rate": product.commission_rate,
+            "fixed_commission": product.fixed_commission,
+            "thumbnail": product.thumbnail,
+            "in_stock": product.in_stock,
+            "status": product.status,
+            "is_digital": product.is_digital,
+            "has_digital_file": bool(product.digital_file_key),
+            "total_clicks": clicks_count,
+            "total_orders": orders_count,
+            "active_affiliates_count": affiliates_count
+        }
+        result.append(ProductListItem(**product_dict))
+
+    return result
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
