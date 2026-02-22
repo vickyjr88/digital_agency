@@ -16,15 +16,30 @@ depends_on = None
 
 
 def upgrade():
-    # Add Facebook-related columns to influencer_profiles table
-    op.add_column('influencer_profiles', sa.Column('facebook_handle', sa.String(100), nullable=True))
-    op.add_column('influencer_profiles', sa.Column('facebook_id', sa.String(100), nullable=True))
-    op.add_column('influencer_profiles', sa.Column('facebook_followers', sa.Integer(), nullable=True, server_default='0'))
-    op.add_column('influencer_profiles', sa.Column('facebook_engagement_rate', sa.Float(), nullable=True, server_default='0.0'))
-    op.add_column('influencer_profiles', sa.Column('facebook_verified', sa.Boolean(), nullable=True, server_default='false'))
-    op.add_column('influencer_profiles', sa.Column('facebook_connected_at', sa.DateTime(), nullable=True))
-    op.add_column('influencer_profiles', sa.Column('facebook_access_token', sa.String(500), nullable=True))
-    op.add_column('influencer_profiles', sa.Column('facebook_link', sa.String(500), nullable=True))
+    # Add Facebook-related columns to influencer_profiles table (idempotent)
+    from sqlalchemy import inspect
+    from sqlalchemy.engine import reflection
+
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('influencer_profiles')]
+
+    if 'facebook_handle' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_handle', sa.String(100), nullable=True))
+    if 'facebook_id' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_id', sa.String(100), nullable=True))
+    if 'facebook_followers' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_followers', sa.Integer(), nullable=True, server_default='0'))
+    if 'facebook_engagement_rate' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_engagement_rate', sa.Float(), nullable=True, server_default='0.0'))
+    if 'facebook_verified' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_verified', sa.Boolean(), nullable=True, server_default='false'))
+    if 'facebook_connected_at' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_connected_at', sa.DateTime(), nullable=True))
+    if 'facebook_access_token' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_access_token', sa.String(500), nullable=True))
+    if 'facebook_link' not in columns:
+        op.add_column('influencer_profiles', sa.Column('facebook_link', sa.String(500), nullable=True))
 
 
 def downgrade():
