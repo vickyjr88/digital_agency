@@ -165,16 +165,20 @@ async def get_campaign_bids(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all bids for a campaign (brand owner only)."""
+    """Get all bids for a campaign (brand owner or admin)."""
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
-    
+
     if not campaign:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Campaign not found"
         )
-    
-    if campaign.brand_id != current_user.id:
+
+    # Check if user is admin or campaign owner
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = campaign.brand_id == current_user.id
+
+    if not (is_admin or is_owner):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="You can only view bids on your own campaigns"
@@ -218,7 +222,11 @@ async def accept_bid(
             detail="Bid not found"
         )
     
-    if bid.campaign.brand_id != current_user.id:
+    # Check if user is admin or campaign owner
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = bid.campaign.brand_id == current_user.id
+
+    if not (is_admin or is_owner):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="Only the campaign owner can accept bids"
@@ -272,7 +280,11 @@ async def reject_bid(
             detail="Bid not found"
         )
     
-    if bid.campaign.brand_id != current_user.id:
+    # Check if user is admin or campaign owner
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = bid.campaign.brand_id == current_user.id
+
+    if not (is_admin or is_owner):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="Only the campaign owner can reject bids"

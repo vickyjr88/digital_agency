@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 import logging
 
 from database.config import get_db
-from database.models import User
+from database.models import User, UserType
 from database.marketplace_models import (
     ProofOfWork, ProofOfWorkStatus,
     Bid, BidStatusDB,
@@ -368,8 +368,11 @@ async def review_proof_of_work(
             detail="Proof not found"
         )
     
-    # Verify brand owns the campaign
-    if not proof.campaign or proof.campaign.brand_id != current_user.id:
+    # Verify brand owns the campaign or is admin
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = proof.campaign and proof.campaign.brand_id == current_user.id
+
+    if not (is_admin or is_owner):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't own this campaign"

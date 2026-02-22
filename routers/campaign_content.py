@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 
 from database.config import get_db
-from database.models import User, Trend, generate_uuid
+from database.models import User, UserType, Trend, generate_uuid
 from database.marketplace_models import (
     Campaign, CampaignContent, CampaignContentStatus,
     Bid, BidStatusDB, InfluencerProfile
@@ -476,8 +476,11 @@ async def approve_content(
             detail="Content not found"
         )
     
-    # Verify brand ownership
-    if content.campaign.brand_id != current_user.id:
+    # Verify brand ownership or admin
+    is_admin = current_user.user_type == UserType.ADMIN
+    is_owner = content.campaign.brand_id == current_user.id
+
+    if not (is_admin or is_owner):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the campaign owner can approve content"
