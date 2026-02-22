@@ -336,6 +336,7 @@ class ProductListItem(BaseModel):
     total_clicks: int
     total_orders: int
     active_affiliates_count: int
+    pending_approvals_count: int = 0
     is_digital: bool = False
 
     class Config:

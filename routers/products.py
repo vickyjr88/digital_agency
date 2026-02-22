@@ -42,7 +42,8 @@ from database.affiliate_models import (
     ProductVariant,
     AffiliateLink,
     AffiliateClick,
-    Order
+    Order,
+    AffiliateApproval
 )
 from schemas.affiliate import (
     ProductCreate,
@@ -238,6 +239,12 @@ async def list_my_products(
             AffiliateLink.product_id == product.id
         ).scalar() or 0
 
+        # Count pending approval requests
+        pending_approvals = db.query(func.count(AffiliateApproval.id)).filter(
+            AffiliateApproval.product_id == product.id,
+            AffiliateApproval.status == "pending"
+        ).scalar() or 0
+
         # Create response item
         product_dict = {
             "id": product.id,
@@ -257,7 +264,8 @@ async def list_my_products(
             "has_digital_file": bool(product.digital_file_key),
             "total_clicks": clicks_count,
             "total_orders": orders_count,
-            "active_affiliates_count": affiliates_count
+            "active_affiliates_count": affiliates_count,
+            "pending_approvals_count": pending_approvals
         }
         result.append(ProductListItem(**product_dict))
 
