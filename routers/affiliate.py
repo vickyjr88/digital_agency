@@ -462,10 +462,51 @@ async def get_pending_approvals(
     ).all()
     product_ids = [p[0] for p in product_ids]
 
-    # Get pending approvals for these products
+    # Get pending approvals for these products with influencer data
     approvals = db.query(AffiliateApproval).filter(
         AffiliateApproval.product_id.in_(product_ids),
         AffiliateApproval.status == "pending"
     ).order_by(AffiliateApproval.applied_at.desc()).all()
 
-    return approvals
+    # Enrich with user data
+    result = []
+    for approval in approvals:
+        approval_dict = {
+            "id": approval.id,
+            "influencer_id": approval.influencer_id,
+            "product_id": approval.product_id,
+            "status": approval.status,
+            "application_message": approval.application_message,
+            "application_data": approval.application_data,
+            "reviewed_at": approval.reviewed_at,
+            "reviewed_by": approval.reviewed_by,
+            "rejection_reason": approval.rejection_reason,
+            "applied_at": approval.applied_at,
+            "approved_at": approval.approved_at,
+            "created_at": approval.created_at,
+            "updated_at": approval.updated_at,
+        }
+
+        # Get influencer profile with user data
+        if approval.influencer:
+            user = db.query(User).filter(User.id == approval.influencer.user_id).first()
+            approval_dict["influencer"] = {
+                "id": approval.influencer.id,
+                "user_id": approval.influencer.user_id,
+                "name": user.name if user else None,
+                "email": user.email if user else None,
+                "display_name": approval.influencer.display_name,
+                "phone_number": user.phone_number if user else None,
+                "instagram_handle": approval.influencer.instagram_handle,
+                "instagram_followers": approval.influencer.instagram_followers,
+                "instagram_engagement_rate": approval.influencer.instagram_engagement_rate,
+                "tiktok_handle": approval.influencer.tiktok_handle,
+                "tiktok_followers": approval.influencer.tiktok_followers,
+                "youtube_channel": approval.influencer.youtube_channel,
+                "youtube_subscribers": approval.influencer.youtube_subscribers,
+                "rating": approval.influencer.rating,
+            }
+
+        result.append(approval_dict)
+
+    return result

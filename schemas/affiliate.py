@@ -359,6 +359,27 @@ class AffiliateApprovalCreate(BaseModel):
     application_data: Optional[Dict[str, Any]] = None
 
 
+class InfluencerBasicInfo(BaseModel):
+    """Basic influencer info for approval responses"""
+    id: str
+    user_id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    instagram_handle: Optional[str] = None
+    instagram_followers: Optional[int] = None
+    instagram_engagement_rate: Optional[float] = None
+    tiktok_handle: Optional[str] = None
+    tiktok_followers: Optional[int] = None
+    youtube_channel: Optional[str] = None
+    youtube_subscribers: Optional[int] = None
+    rating: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
 class AffiliateApprovalResponse(BaseModel):
     id: str
     influencer_id: str
@@ -373,6 +394,7 @@ class AffiliateApprovalResponse(BaseModel):
     approved_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    influencer: Optional[InfluencerBasicInfo] = None
 
     class Config:
         from_attributes = True
