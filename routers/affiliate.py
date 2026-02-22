@@ -496,7 +496,7 @@ async def get_pending_approvals(
                 "name": user.name if user else None,
                 "email": user.email if user else None,
                 "display_name": approval.influencer.display_name,
-                "phone_number": user.phone_number if user else None,
+                "phone_number": approval.influencer.whatsapp_number,
                 "instagram_handle": approval.influencer.instagram_handle,
                 "instagram_followers": approval.influencer.instagram_followers,
                 "instagram_engagement_rate": approval.influencer.instagram_engagement_rate,
