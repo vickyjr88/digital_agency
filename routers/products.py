@@ -233,10 +233,9 @@ async def list_my_products(
             Order.product_id == product.id
         ).scalar() or 0
 
-        # Count active affiliates
+        # Count active affiliates (all generated affiliate links are active)
         affiliates_count = db.query(func.count(AffiliateLink.id.distinct())).filter(
-            AffiliateLink.product_id == product.id,
-            AffiliateLink.status == "active"
+            AffiliateLink.product_id == product.id
         ).scalar() or 0
 
         # Create response item
