@@ -30,6 +30,7 @@ if DATABASE_URL:
 from database.models import Base
 from database import marketplace_models  # Also import marketplace models
 from database import affiliate_models  # Import affiliate commerce models
+from database import tumanasi_models  # Import tumanasi models
 
 target_metadata = Base.metadata
 
