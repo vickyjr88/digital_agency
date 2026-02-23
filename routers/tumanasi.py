@@ -11,7 +11,7 @@ import boto3
 import os
 
 from database.config import get_db
-from database.models import User
+from database.models import User, UserRole
 from database.tumanasi_models import (
     TumansiZone, TumansiDelivery, TumansiRider, TumansiRiderRating,
     DeliveryStatusDB, PaymentStatusDB
@@ -257,7 +257,7 @@ def get_delivery(
     # Only allow if owner or rider or admin
     is_owner = delivery.customer_user_id == current_user.id
     is_rider = delivery.rider and delivery.rider.user_id == current_user.id
-    is_admin = str(getattr(current_user, "role", "")).lower() == "admin"
+    is_admin = current_user.role == UserRole.ADMIN
     if not (is_owner or is_rider or is_admin):
         raise HTTPException(status_code=403, detail="Not authorised")
     return delivery
@@ -700,7 +700,8 @@ def confirm_cash_payment(
 # ============================================================================
 
 def require_admin(current_user: User = Depends(get_current_user)):
-    if str(getattr(current_user, "role", "")).lower() != "admin":
+    """Dependency: raises 403 if the caller is not an admin."""
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
