@@ -880,3 +880,50 @@ def admin_update_zone(
     db.commit()
     db.refresh(zone)
     return zone
+
+
+@router.delete("/admin/zones/{zone_id}", status_code=204)
+def admin_delete_zone(
+    zone_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Permanently delete a zone. Fails if any deliveries reference it."""
+    zone = db.query(TumansiZone).filter(TumansiZone.id == zone_id).first()
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    # Safety: check if zone has deliveries referencing it
+    from database.tumanasi_models import TumansiDelivery as _D
+    refs = db.query(_D).filter(
+        (_D.pickup_area_id == zone_id) | (_D.dropoff_area_id == zone_id)
+    ).count()
+    if refs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {refs} delivery/deliveries reference this zone. Deactivate it instead."
+        )
+    db.delete(zone)
+    db.commit()
+
+
+@router.get("/admin/riders/available")
+def admin_available_riders(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Return all verified, active riders for manual assignment dropdown."""
+    riders = db.query(TumansiRider).filter(
+        TumansiRider.is_verified == True,
+        TumansiRider.is_active   == True,
+    ).order_by(TumansiRider.is_available.desc(), TumansiRider.full_name).all()
+    return [
+        {
+            "id":           r.id,
+            "full_name":    r.full_name,
+            "phone":        r.phone,
+            "vehicle_type": r.vehicle_type,
+            "is_available": r.is_available,
+            "current_delivery_id": r.current_delivery_id,
+        }
+        for r in riders
+    ]
