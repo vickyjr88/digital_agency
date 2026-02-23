@@ -175,8 +175,15 @@ async def get_campaign_bids(
         )
 
     # Check if user is admin or campaign owner
-    is_admin = current_user.user_type == UserType.ADMIN
+    # Note: We do NOT rely on current_user.user_type, since users can act as both influencer/brand
     is_owner = campaign.brand_id == current_user.id
+    
+    # Check legacy role and new user_type
+    is_admin = False
+    if hasattr(current_user, 'role') and str(current_user.role).lower() == "admin":
+        is_admin = True
+    elif hasattr(current_user, 'user_type') and str(current_user.user_type).lower() == "admin":
+        is_admin = True
 
     if not (is_admin or is_owner):
         raise HTTPException(
