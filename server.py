@@ -29,6 +29,7 @@ from core.sheets_handler import SheetsHandler
 from core.generator import ContentGenerator
 from config.personas import PERSONAS
 from core.paystack_service import PaystackService, PaystackConfig, PaystackWebhookHandler
+from core.posthog_service import init_posthog, shutdown_posthog, track_event, identify_user
 
 # Import marketplace routers (v2 API)
 from routers.influencers import router as influencers_router
@@ -92,7 +93,12 @@ def startup_event():
     except Exception as e:
         print(f"⚠️ Tumanasi init warning: {e}")
 
-    
+    # Initialize PostHog analytics
+    try:
+        init_posthog()
+    except Exception as e:
+        print(f"⚠️ PostHog init warning: {e}")
+
     # Seed Admin User and Brands
     db = SessionLocal()
     try:
@@ -161,6 +167,19 @@ def startup_event():
     scheduler.add_job(scheduled_trend_refresh, 'interval', hours=1)
     scheduler.start()
     print("✅ Scheduler started: Trends will refresh every hour.")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Cleanup tasks on server shutdown"""
+    print("🔄 Shutting down server...")
+
+    # Shutdown PostHog client and flush remaining events
+    try:
+        shutdown_posthog()
+    except Exception as e:
+        print(f"⚠️ PostHog shutdown warning: {e}")
+
 
 # CORS Setup - Allow all origins
 app.add_middleware(
@@ -347,12 +366,36 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
+    # Track user registration in PostHog
+    try:
+        identify_user(
+            user_id=str(new_user.id),
+            properties={
+                "email": new_user.email,
+                "name": new_user.name,
+                "user_type": new_user.user_type.value if hasattr(new_user.user_type, 'value') else str(new_user.user_type),
+                "subscription_tier": new_user.subscription_tier.value if hasattr(new_user.subscription_tier, 'value') else str(new_user.subscription_tier),
+                "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
+            }
+        )
+        track_event(
+            event_name="user_registered",
+            distinct_id=str(new_user.id),
+            properties={
+                "email": new_user.email,
+                "user_type": new_user.user_type.value if hasattr(new_user.user_type, 'value') else str(new_user.user_type),
+                "subscription_tier": new_user.subscription_tier.value if hasattr(new_user.subscription_tier, 'value') else str(new_user.subscription_tier),
+            }
+        )
+    except Exception as e:
+        print(f"⚠️ PostHog tracking failed: {e}")
+
     # Create access token
     access_token = create_access_token(
         data={"sub": new_user.email, "user_id": new_user.id}
     )
-    
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/api/auth/login", response_model=Token)
@@ -362,18 +405,31 @@ def login_new(credentials: UserLogin, db: Session = Depends(get_db)):
     Returns JWT token on success.
     """
     user = db.query(User).filter(User.email == credentials.email).first()
-    
+
     if not user or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
+
+    # Track user login in PostHog
+    try:
+        track_event(
+            event_name="user_logged_in",
+            distinct_id=str(user.id),
+            properties={
+                "email": user.email,
+                "user_type": user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type),
+            }
+        )
+    except Exception as e:
+        print(f"⚠️ PostHog tracking failed: {e}")
+
     # Create access token
     access_token = create_access_token(
         data={"sub": user.email, "user_id": user.id}
     )
-    
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/api/auth/me")

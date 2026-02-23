@@ -32,3 +32,4 @@ boto3  # AWS S3 for file storage
 openai>=1.0.0  # ChatGPT fallback
 apscheduler  # Scheduled tasks
 requests  # HTTP requests for scraping
+posthog  # Product analytics
