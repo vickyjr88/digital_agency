@@ -191,19 +191,30 @@ async def list_campaigns(
     """
     query = db.query(Campaign)
 
-    # If request is for open campaigns, allow anyone (authenticated or not)
-    if status_filter and status_filter.value == "open":
-        query = query.filter(Campaign.status == "open")
-    else:
-        # Require authentication for all other queries
-        if not current_user:
+    if not current_user:
+        # If request is for open campaigns, allow unauthenticated
+        if status_filter and status_filter.value == "open":
+            query = query.filter(Campaign.status == "open")
+        else:
             from fastapi import HTTPException, status as http_status
             raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
+    else:
+        # Handle User Role filters for merged accounts
         user_type = current_user.user_type
-        if user_type == UserType.BRAND or role == "brand":
+        
+        # Check legacy admin roll
+        is_admin = False
+        if hasattr(current_user, 'role') and str(current_user.role).lower() == "admin":
+            is_admin = True
+        elif hasattr(current_user, 'user_type') and str(current_user.user_type).lower() == "admin":
+            is_admin = True
+
+        if is_admin and not role:
+            # Admin can see all campaigns (no filter)
+            pass
+        elif role == "brand" or (user_type == UserType.BRAND and not role):
             query = query.filter(Campaign.brand_id == current_user.id)
-        elif user_type == UserType.INFLUENCER or role == "influencer":
+        elif role == "influencer" or (user_type == UserType.INFLUENCER and not role):
             profile = db.query(InfluencerProfile).filter(
                 InfluencerProfile.user_id == current_user.id
             ).first()
@@ -211,7 +222,7 @@ async def list_campaigns(
                 query = query.filter(Campaign.influencer_id == profile.id)
             else:
                 return {"campaigns": [], "pagination": {"page": 1, "limit": limit, "total": 0}}
-        # Admin can see all campaigns (no filter)
+        
         if status_filter:
             query = query.filter(Campaign.status == status_filter.value)
 
