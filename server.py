@@ -95,6 +95,7 @@ def startup_event():
                 password_hash=get_password_hash(admin_pass),
                 name="Dexter Admin",
                 role=UserRole.ADMIN,
+                user_type=UserType.ADMIN,  # Explicitly set user_type
                 subscription_tier=SubscriptionTier.AGENCY,
                 subscription_status=SubscriptionStatus.ACTIVE
             )
