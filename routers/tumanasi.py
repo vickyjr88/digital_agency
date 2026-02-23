@@ -479,6 +479,66 @@ def set_availability(
 # 5. RIDER — DELIVERY MANAGEMENT
 # ============================================================================
 
+@router.post("/rider/log-delivery", response_model=DeliveryResponse)
+def rider_log_delivery(
+    body:         DeliveryCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """
+    Riders can log a delivery on behalf of a client directly.
+    It automatically assigns to them and moves to assigned status.
+    """
+    rider = get_rider_from_user(db, current_user)
+    if not rider.is_verified:
+        raise HTTPException(status_code=403, detail="Unverified riders cannot log deliveries.")
+
+    # Resolve price from dropoff zone
+    dropoff_zone = db.query(TumansiZone).filter(TumansiZone.id == body.dropoff_area_id).first()
+    if not dropoff_zone or not dropoff_zone.is_active:
+        raise HTTPException(status_code=400, detail="Invalid or inactive dropoff zone.")
+
+    tracking = generate_tracking_number()
+    delivery = TumansiDelivery(
+        id              = str(uuid.uuid4()),
+        tracking_number = tracking,
+        customer_user_id = getattr(current_user, "id", None), # rider logs it so they act as customer agent
+        customer_name    = body.customer_name,
+        customer_phone   = body.customer_phone,
+        customer_email   = body.customer_email,
+        errand_type          = body.errand_type,
+        errand_description   = body.errand_description,
+        special_instructions = body.special_instructions,
+        is_fragile           = body.is_fragile,
+        requires_handling    = body.requires_handling,
+        pickup_address       = body.pickup_address,
+        pickup_area_id       = body.pickup_area_id,
+        pickup_contact_name  = body.pickup_contact_name or body.customer_name,
+        pickup_contact_phone = body.pickup_contact_phone or body.customer_phone,
+        dropoff_address       = body.dropoff_address,
+        dropoff_area_id       = body.dropoff_area_id,
+        dropoff_contact_name  = body.dropoff_contact_name or body.customer_name,
+        dropoff_contact_phone = body.dropoff_contact_phone or body.customer_phone,
+        quoted_price_kes = dropoff_zone.price_kes,
+        final_price_kes  = dropoff_zone.price_kes,
+        payment_method   = body.payment_method,
+        payment_status   = PaymentStatusDB.PENDING,
+        status           = DeliveryStatusDB.ASSIGNED,  # Start directly as Assigned
+        rider_id         = rider.id,                   # Force self assignment
+        assigned_at      = datetime.utcnow(),
+        assignment_method = "manual",
+        estimated_delivery_at = datetime.utcnow() + timedelta(hours=2),
+    )
+
+    rider.current_delivery_id = delivery.id
+    rider.total_deliveries   += 1
+
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
 @router.get("/rider/deliveries", response_model=List[DeliveryListItem])
 def rider_deliveries(
     status_filter: Optional[str] = Query(None, alias="status"),
