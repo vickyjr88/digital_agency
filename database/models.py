@@ -62,10 +62,10 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255))
-    role = Column(Enum(UserRole), default=UserRole.USER)
-    user_type = Column(Enum(UserType), default=UserType.BRAND)  # Marketplace user type
-    subscription_tier = Column(Enum(SubscriptionTier), default=SubscriptionTier.FREE)
-    subscription_status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIAL)
+    role = Column(Enum(UserRole, native_enum=False, length=20), default=UserRole.USER)
+    user_type = Column(Enum(UserType, native_enum=False, length=20), default=UserType.BRAND)  # Marketplace user type
+    subscription_tier = Column(Enum(SubscriptionTier, native_enum=False, length=20), default=SubscriptionTier.FREE)
+    subscription_status = Column(Enum(SubscriptionStatus, native_enum=False, length=20), default=SubscriptionStatus.TRIAL)
     stripe_customer_id = Column(String(255), unique=True)
     trial_ends_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
@@ -135,7 +135,7 @@ class Content(Base):
     facebook_post = Column(Text)
     instagram_reel_script = Column(JSON)
     tiktok_idea = Column(JSON)
-    status = Column(Enum(ContentStatus), default=ContentStatus.PENDING)
+    status = Column(Enum(ContentStatus, native_enum=False, length=20), default=ContentStatus.PENDING)
     generated_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime)
     scheduled_at = Column(DateTime)
@@ -171,7 +171,7 @@ class TeamMember(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)  # Owner
     brand_id = Column(String(36), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False)
     member_email = Column(String(255), nullable=False)
-    role = Column(Enum(TeamRole), default=TeamRole.VIEWER)
+    role = Column(Enum(TeamRole, native_enum=False, length=20), default=TeamRole.VIEWER)
     invited_at = Column(DateTime, server_default=func.now())
     accepted_at = Column(DateTime)
     
@@ -187,7 +187,7 @@ class Transaction(Base):
     reference = Column(String(100), unique=True, nullable=False)
     amount = Column(Integer, nullable=False)
     currency = Column(String(3), default="KES")
-    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING)
+    status = Column(Enum(PaymentStatus, native_enum=False, length=20), default=PaymentStatus.PENDING)
     plan_id = Column(String(50))
     provider = Column(String(20), default="paystack")
     metadata_json = Column(JSON)
