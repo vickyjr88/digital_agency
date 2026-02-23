@@ -213,6 +213,61 @@ async def list_open_campaigns(
     }
 
 
+@router.get("/my-bids")
+async def get_my_bids(
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get influencer's own bids."""
+    
+    influencer = db.query(InfluencerProfile).filter(
+        InfluencerProfile.user_id == current_user.id
+    ).first()
+    
+    if not influencer:
+        return {"bids": [], "total": 0, "page": page, "pages": 0}
+    
+    query = db.query(Bid).options(
+        joinedload(Bid.campaign).joinedload(Campaign.brand_entity)
+    ).filter(Bid.influencer_id == influencer.id)
+    
+    if status:
+        query = query.filter(Bid.status == status)
+    
+    total = query.count()
+    bids = query.order_by(Bid.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    return {
+        "bids": [
+            {
+                "id": b.id,
+                "amount": b.amount,
+                "status": b.status.value,
+                "platform": b.platform,
+                "content_type": b.content_type,
+                "timeline_days": b.timeline_days,
+                "deliverables_description": b.deliverables_description,
+                "proposal": b.proposal[:100] + "..." if len(b.proposal or "") > 100 else b.proposal,
+                "campaign": {
+                    "id": b.campaign.id,
+                    "title": b.campaign.title,
+                    "brand_name": b.campaign.brand_entity.name if b.campaign.brand_entity else "Unknown",
+                    "budget": b.campaign.budget,
+                    "status": b.campaign.status.value
+                } if b.campaign else None,
+                "created_at": b.created_at.isoformat()
+            }
+            for b in bids
+        ],
+        "total": total,
+        "page": page,
+        "pages": (total + limit - 1) // limit
+    }
+
+
 @router.get("/{campaign_id}")
 async def get_open_campaign(
     campaign_id: str,
@@ -610,56 +665,3 @@ async def reject_bid(
     return {"message": "Bid rejected"}
 
 
-@router.get("/my-bids")
-async def get_my_bids(
-    status: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=50),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get influencer's own bids."""
-    
-    influencer = db.query(InfluencerProfile).filter(
-        InfluencerProfile.user_id == current_user.id
-    ).first()
-    
-    if not influencer:
-        return {"bids": [], "total": 0, "page": page, "pages": 0}
-    
-    query = db.query(Bid).options(
-        joinedload(Bid.campaign).joinedload(Campaign.brand_entity)
-    ).filter(Bid.influencer_id == influencer.id)
-    
-    if status:
-        query = query.filter(Bid.status == status)
-    
-    total = query.count()
-    bids = query.order_by(Bid.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
-    
-    return {
-        "bids": [
-            {
-                "id": b.id,
-                "amount": b.amount,
-                "status": b.status.value,
-                "platform": b.platform,
-                "content_type": b.content_type,
-                "timeline_days": b.timeline_days,
-                "deliverables_description": b.deliverables_description,
-                "proposal": b.proposal[:100] + "..." if len(b.proposal or "") > 100 else b.proposal,
-                "campaign": {
-                    "id": b.campaign.id,
-                    "title": b.campaign.title,
-                    "brand_name": b.campaign.brand_entity.name if b.campaign.brand_entity else "Unknown",
-                    "budget": b.campaign.budget,
-                    "status": b.campaign.status.value
-                } if b.campaign else None,
-                "created_at": b.created_at.isoformat()
-            }
-            for b in bids
-        ],
-        "total": total,
-        "page": page,
-        "pages": (total + limit - 1) // limit
-    }
