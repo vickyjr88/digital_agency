@@ -307,6 +307,42 @@ class AdminZoneUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class AdminDeliveryUpdate(BaseModel):
+    """Admin-only: freely edit any mutable field of a delivery."""
+    # Customer
+    customer_name:  Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+
+    # Errand
+    errand_type:          Optional[str] = None
+    errand_description:   Optional[str] = None
+    special_instructions: Optional[str] = None
+    is_fragile:           Optional[bool] = None
+    requires_handling:    Optional[bool] = None
+
+    # Pickup
+    pickup_address:       Optional[str] = None
+    pickup_contact_name:  Optional[str] = None
+    pickup_contact_phone: Optional[str] = None
+
+    # Dropoff
+    dropoff_address:       Optional[str] = None
+    dropoff_contact_name:  Optional[str] = None
+    dropoff_contact_phone: Optional[str] = None
+
+    # Pricing
+    final_price_kes: Optional[Decimal] = Field(None, gt=0)
+
+    # Status & payment
+    status:           Optional[str] = None
+    payment_status:   Optional[str] = None
+    payment_method:   Optional[str] = None
+
+    # Internal notes
+    cancellation_reason: Optional[str] = None
+
+
 class TumansiStats(BaseModel):
     total_deliveries:    int
     active_deliveries:   int

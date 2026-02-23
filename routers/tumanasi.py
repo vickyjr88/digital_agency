@@ -23,6 +23,7 @@ from schemas.tumanasi import (
     RateRider, InitiatePayment,
     DeliveryResponse, DeliveryListItem,
     AdminRiderVerify, AdminAssignRider, AdminZoneCreate, AdminZoneUpdate,
+    AdminDeliveryUpdate,
     TumansiStats
 )
 from auth.dependencies import get_current_user
@@ -785,6 +786,57 @@ def admin_list_deliveries(
         rider_name      = d.rider.full_name if d.rider else None,
         created_at      = d.created_at,
     ) for d in rows]
+
+
+@router.put("/admin/deliveries/{delivery_id}", response_model=DeliveryResponse)
+def admin_update_delivery(
+    delivery_id: str,
+    body: AdminDeliveryUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    Admin: freely edit any mutable field on a delivery.
+    Changing final_price_kes overrides what customer is billed.
+    Changing status bypasses the normal rider state-machine.
+    """
+    delivery = db.query(TumansiDelivery).filter(TumansiDelivery.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    # Apply each field only when explicitly provided
+    if body.customer_name  is not None: delivery.customer_name  = body.customer_name
+    if body.customer_phone is not None: delivery.customer_phone = body.customer_phone
+    if body.customer_email is not None: delivery.customer_email = body.customer_email
+
+    if body.errand_type          is not None: delivery.errand_type          = body.errand_type
+    if body.errand_description   is not None: delivery.errand_description   = body.errand_description
+    if body.special_instructions is not None: delivery.special_instructions = body.special_instructions
+    if body.is_fragile           is not None: delivery.is_fragile           = body.is_fragile
+    if body.requires_handling    is not None: delivery.requires_handling    = body.requires_handling
+
+    if body.pickup_address       is not None: delivery.pickup_address       = body.pickup_address
+    if body.pickup_contact_name  is not None: delivery.pickup_contact_name  = body.pickup_contact_name
+    if body.pickup_contact_phone is not None: delivery.pickup_contact_phone = body.pickup_contact_phone
+
+    if body.dropoff_address       is not None: delivery.dropoff_address       = body.dropoff_address
+    if body.dropoff_contact_name  is not None: delivery.dropoff_contact_name  = body.dropoff_contact_name
+    if body.dropoff_contact_phone is not None: delivery.dropoff_contact_phone = body.dropoff_contact_phone
+
+    if body.final_price_kes is not None:
+        delivery.final_price_kes  = body.final_price_kes
+        # also update quoted so UI shows the override consistently
+        delivery.quoted_price_kes = body.final_price_kes
+
+    if body.status         is not None: delivery.status         = body.status
+    if body.payment_status is not None: delivery.payment_status = body.payment_status
+    if body.payment_method is not None: delivery.payment_method = body.payment_method
+
+    if body.cancellation_reason is not None: delivery.cancellation_reason = body.cancellation_reason
+
+    db.commit()
+    db.refresh(delivery)
+    return delivery
 
 
 @router.put("/admin/deliveries/{delivery_id}/assign")
