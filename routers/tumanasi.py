@@ -604,8 +604,16 @@ def accept_delivery(
     current_user: User    = Depends(get_current_user),
 ):
     rider = get_rider_from_user(db, current_user)
-    if not rider.is_available or rider.current_delivery_id:
-        raise HTTPException(status_code=400, detail="You already have an active delivery or are offline.")
+    if not rider.is_available:
+        raise HTTPException(status_code=400, detail="You must be online to accept deliveries.")
+        
+    if rider.current_delivery_id:
+        old_delivery = db.query(TumansiDelivery).filter(TumansiDelivery.id == rider.current_delivery_id).first()
+        if not old_delivery or old_delivery.status in [DeliveryStatusDB.COMPLETED, DeliveryStatusDB.CANCELLED]:
+            rider.current_delivery_id = None
+            db.commit()
+        else:
+            raise HTTPException(status_code=400, detail="You already have an active delivery.")
 
     delivery = db.query(TumansiDelivery).filter(
         TumansiDelivery.id     == delivery_id,
