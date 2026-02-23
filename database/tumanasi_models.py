@@ -28,6 +28,8 @@ class VehicleTypeDB(str, enum.Enum):
     MOTORCYCLE = "motorcycle"
     TUK_TUK   = "tuk_tuk"
     CAR        = "car"
+    COMMUTE_WALK = "commute_walk"
+    COURIER    = "courier"
 
 
 class PaymentMethodDB(str, enum.Enum):

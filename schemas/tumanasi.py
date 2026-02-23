@@ -24,6 +24,8 @@ class VehicleType(str, Enum):
     MOTORCYCLE = "motorcycle"
     TUK_TUK   = "tuk_tuk"
     CAR        = "car"
+    COMMUTE_WALK = "commute_walk"
+    COURIER    = "courier"
 
 
 class PaymentMethod(str, Enum):
