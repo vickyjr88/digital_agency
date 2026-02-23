@@ -53,6 +53,7 @@ from routers.affiliate import router as affiliate_router
 from routers.orders import router as orders_router
 from routers.affiliate_analytics import router as affiliate_analytics_router
 from routers.digital_products import router as digital_products_router
+from routers.tumanasi import router as tumanasi_router
 
 load_dotenv()
 
@@ -77,6 +78,19 @@ def startup_event():
         print("✅ Database tables initialized (including affiliate commerce)!")
     except Exception as e:
         print(f"⚠️ Tables init warning: {e}")
+
+    # Import tumanasi models to ensure tables are created
+    try:
+        from database import tumanasi_models
+        from database.config import engine
+        from database.models import Base
+        Base.metadata.create_all(bind=engine)
+        # Auto-seed zones if empty
+        from seed_tumanasi_zones import seed as seed_zones
+        seed_zones()
+        print("✅ Tumanasi tables ready!")
+    except Exception as e:
+        print(f"⚠️ Tumanasi init warning: {e}")
 
     
     # Seed Admin User and Brands
@@ -189,6 +203,7 @@ app.include_router(affiliate_router)  # /api/affiliate
 app.include_router(orders_router)  # /api/orders
 app.include_router(affiliate_analytics_router)  # /api/affiliate-analytics
 app.include_router(digital_products_router)  # /api/digital-products
+app.include_router(tumanasi_router)            # /api/tumanasi
 
 # Security
 security = HTTPBearer()
