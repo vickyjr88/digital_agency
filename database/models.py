@@ -38,15 +38,15 @@ class TeamRole(str, enum.Enum):
     ADMIN = "admin"
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
-    USER = "user"
+    ADMIN = "ADMIN"
+    USER = "USER"
 
 
 # New enum for marketplace user types
 class UserType(str, enum.Enum):
-    BRAND = "brand"
-    INFLUENCER = "influencer"
-    ADMIN = "admin"
+    BRAND = "BRAND"
+    INFLUENCER = "INFLUENCER"
+    ADMIN = "ADMIN"
 
 
 class PaymentStatus(str, enum.Enum):
