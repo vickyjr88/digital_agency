@@ -30,6 +30,11 @@ from core.generator import ContentGenerator
 from config.personas import PERSONAS
 from core.paystack_service import PaystackService, PaystackConfig, PaystackWebhookHandler
 from core.posthog_service import init_posthog, shutdown_posthog, track_event, identify_user
+from core.error_middleware import (
+    ErrorTrackingMiddleware,
+    http_exception_handler,
+    validation_exception_handler
+)
 
 # Import marketplace routers (v2 API)
 from routers.influencers import router as influencers_router
@@ -190,6 +195,15 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Add Error Tracking Middleware
+app.add_middleware(ErrorTrackingMiddleware)
+
+# Add Custom Exception Handlers
+from fastapi.exceptions import HTTPException, RequestValidationError
+
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
 

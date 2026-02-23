@@ -13,6 +13,7 @@ import secrets
 
 from core.minio_service import generate_download_url
 from core.paystack_service import PaystackService
+from core.posthog_service import capture_exception, track_event
 
 from database.models import User, UserRole
 from database.marketplace_models import InfluencerProfile, Wallet, WalletTransaction
@@ -538,6 +539,18 @@ async def initialize_order_payment(
         }
 
     except Exception as e:
+        # Capture payment initialization error
+        capture_exception(
+            error=e,
+            user_id=order_data.customer_email,  # Use email as identifier for guests
+            context={
+                "operation": "initialize_payment",
+                "product_id": order_data.product_id,
+                "product_name": product.name,
+                "amount": float(total_amount),
+                "quantity": order_data.quantity,
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Payment initialization failed: {str(e)}"

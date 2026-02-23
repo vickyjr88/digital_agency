@@ -21,6 +21,7 @@ from database.marketplace_models import (
 from auth.dependencies import get_current_user, get_optional_current_user
 from auth.decorators import require_user_type
 from auth.roles import UserType
+from core.posthog_service import capture_exception, track_event
 
 router = APIRouter(prefix="/open-campaigns", tags=["Open Campaigns"])
 MIN_CAMPAIGN_BUDGET = 1000  # Minimum budget in cents (10 KES)
@@ -101,42 +102,71 @@ async def create_open_campaign(
         )
     
     # Create campaign with content generation fields
-    campaign = Campaign(
-        brand_id=current_user.id,
-        brand_entity_id=request.brand_id,
-        title=request.title,
-        description=request.description,
-        budget=request.budget,
-        budget_spent=0,
-        platforms=request.platforms,
-        content_types=request.content_types,
-        deadline=request.deadline,
-        custom_requirements=request.requirements,
-        # Content generation fields
-        voice=request.voice,
-        sample_tone=request.sample_tone,
-        key_messages=request.key_messages,
-        hashtags=request.hashtags,
-        target_audience=request.target_audience,
-        content_style=request.content_style,
-        content_themes=request.content_themes,
-        product_name=request.product_name,
-        product_description=request.product_description,
-        product_url=request.product_url,
-        content_dos=request.content_dos,
-        content_donts=request.content_donts,
-        status=CampaignStatusDB.OPEN
-    )
-    
-    db.add(campaign)
-    db.commit()
-    db.refresh(campaign)
-    
-    return {
-        "message": "Campaign created successfully",
-        "campaign_id": campaign.id,
-        "status": getattr(campaign.status, 'value', campaign.status)
-    }
+    try:
+        campaign = Campaign(
+            brand_id=current_user.id,
+            brand_entity_id=request.brand_id,
+            title=request.title,
+            description=request.description,
+            budget=request.budget,
+            budget_spent=0,
+            platforms=request.platforms,
+            content_types=request.content_types,
+            deadline=request.deadline,
+            custom_requirements=request.requirements,
+            # Content generation fields
+            voice=request.voice,
+            sample_tone=request.sample_tone,
+            key_messages=request.key_messages,
+            hashtags=request.hashtags,
+            target_audience=request.target_audience,
+            content_style=request.content_style,
+            content_themes=request.content_themes,
+            product_name=request.product_name,
+            product_description=request.product_description,
+            product_url=request.product_url,
+            content_dos=request.content_dos,
+            content_donts=request.content_donts,
+            status=CampaignStatusDB.OPEN
+        )
+
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+
+        # Track successful campaign creation
+        track_event(
+            event_name="campaign_created_backend",
+            distinct_id=str(current_user.id),
+            properties={
+                "campaign_id": str(campaign.id),
+                "budget": request.budget,
+                "platforms": request.platforms,
+                "content_types": request.content_types,
+            }
+        )
+
+        return {
+            "message": "Campaign created successfully",
+            "campaign_id": campaign.id,
+            "status": getattr(campaign.status, 'value', campaign.status)
+        }
+    except Exception as e:
+        db.rollback()
+        # Capture exception to PostHog
+        capture_exception(
+            error=e,
+            user_id=str(current_user.id),
+            context={
+                "operation": "create_campaign",
+                "brand_id": request.brand_id,
+                "budget": request.budget,
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create campaign"
+        )
 
 
 @router.get("")

@@ -164,6 +164,94 @@ def is_feature_enabled(
         return False
 
 
+def capture_exception(
+    error: Exception,
+    user_id: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None
+):
+    """
+    Capture an exception and send it to PostHog
+
+    Args:
+        error: The exception to capture
+        user_id: Optional user ID associated with the error
+        context: Optional additional context about the error
+    """
+    if posthog_client is None:
+        logger.warning("PostHog not initialized, logging error locally")
+        logger.error(f"Exception: {error}", exc_info=True)
+        return
+
+    try:
+        error_data = {
+            "$exception_type": type(error).__name__,
+            "$exception_message": str(error),
+            "$exception_stack_trace_raw": "".join(
+                __import__("traceback").format_exception(type(error), error, error.__traceback__)
+            ),
+            **(context or {})
+        }
+
+        # Use user_id if provided, otherwise use a generic identifier
+        distinct_id = user_id or "system"
+
+        posthog_client.capture(
+            distinct_id=str(distinct_id),
+            event="$exception",
+            properties=error_data
+        )
+
+        logger.debug(f"Captured exception: {type(error).__name__} for user: {distinct_id}")
+    except Exception as e:
+        logger.error(f"Failed to capture exception: {e}")
+
+
+def capture_api_error(
+    endpoint: str,
+    method: str,
+    status_code: int,
+    error_message: str,
+    user_id: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None
+):
+    """
+    Capture an API error
+
+    Args:
+        endpoint: The API endpoint that failed
+        method: HTTP method (GET, POST, etc.)
+        status_code: HTTP status code
+        error_message: Error message
+        user_id: Optional user ID
+        context: Optional additional context
+    """
+    if posthog_client is None:
+        logger.warning("PostHog not initialized, skipping API error tracking")
+        return
+
+    try:
+        error_data = {
+            "endpoint": endpoint,
+            "method": method,
+            "status_code": status_code,
+            "error_message": error_message,
+            "error_type": "api_error",
+            **(context or {})
+        }
+
+        distinct_id = user_id or "system"
+
+        track_event(
+            event_name="api_error",
+            distinct_id=distinct_id,
+            properties=error_data
+        )
+
+        logger.debug(f"Captured API error: {method} {endpoint} - {status_code}")
+    except Exception as e:
+        logger.error(f"Failed to capture API error: {e}")
+
+
 def shutdown_posthog():
     """Shutdown PostHog client and flush remaining events"""
     global posthog_client
