@@ -23,6 +23,7 @@ from database.marketplace_models import (
 from schemas.marketplace import VerificationStatus
 from auth.roles import UserType as UserTypeRole
 from auth.decorators import require_user_type
+from auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/proof-of-work", tags=["Proof of Work"])
 
@@ -86,7 +87,7 @@ class ProofResponse(BaseModel):
 async def submit_proof_of_work(
     request: SubmitProofRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.INFLUENCER))
+    current_user: User = Depends(get_current_user)
 ):
     """
     Submit proof of work for an accepted bid.
@@ -194,7 +195,7 @@ async def submit_proof_of_work(
 async def get_my_proof_submissions(
     status_filter: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.INFLUENCER))
+    current_user: User = Depends(get_current_user)
 ):
     """Get all proof submissions by the current influencer."""
     influencer = db.query(InfluencerProfile).filter(
@@ -292,7 +293,7 @@ async def get_pending_proof_reviews(
 async def get_proof_detail(
     proof_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user_type(UserTypeRole.BRAND, UserTypeRole.INFLUENCER))
+    current_user: User = Depends(get_current_user)
 ):
     """Get details of a specific proof submission."""
     proof = db.query(ProofOfWork).options(
