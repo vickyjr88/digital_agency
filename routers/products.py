@@ -272,6 +272,72 @@ async def list_my_products(
     return result
 
 
+# ============================================================================
+# ADMIN ENDPOINTS (must be before /{product_id} to avoid path conflicts)
+# ============================================================================
+
+@router.get("/admin/all-products")
+async def admin_get_all_products(
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Admin: Get all products across the system."""
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    if role_val.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query = db.query(Product).options(
+        joinedload(Product.brand_profile)
+    ).order_by(Product.created_at.desc())
+
+    if status_filter and status_filter != "all":
+        query = query.filter(Product.status == status_filter)
+
+    if search:
+        query = query.filter(or_(
+            Product.name.ilike(f"%{search}%"),
+            Product.category.ilike(f"%{search}%"),
+        ))
+
+    total = query.count()
+    products = query.offset((page - 1) * limit).limit(limit).all()
+
+    return {
+        "products": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "slug": p.slug,
+                "category": p.category,
+                "price": float(p.price or 0),
+                "currency": p.currency,
+                "status": p.status,
+                "is_digital": p.is_digital,
+                "has_digital_file": bool(p.digital_file_key),
+                "digital_file_name": p.digital_file_name,
+                "digital_file_type": p.digital_file_type,
+                "thumbnail": p.thumbnail,
+                "in_stock": p.in_stock,
+                "total_orders": p.total_orders,
+                "total_sales_amount": float(p.total_sales_amount or 0),
+                "commission_type": p.commission_type,
+                "commission_rate": float(p.commission_rate or 0),
+                "brand_name": (p.brand_profile.brand.name if p.brand_profile and p.brand_profile.brand else "N/A"),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in products
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit
+    }
+
+
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: str,
@@ -572,32 +638,37 @@ async def get_digital_file_download_url(
     if not product.is_digital or not product.digital_file_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No digital file for this product")
 
-    # Check if requester is the brand owner
-    brand_profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id,
-        BrandProfile.id == product.brand_profile_id
-    ).first()
+    # Check if requester is admin — admins can download any product
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    is_admin = role_val.lower() == "admin"
 
-    if not brand_profile:
-        # Must be a verified buyer
-        if not order_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Provide your order_id to download this product."
-            )
-        order = db.query(Order).filter(
-            Order.id == order_id,
-            Order.product_id == product_id,
-            Order.customer_email == current_user.email,
+    if not is_admin:
+        # Check if requester is the brand owner
+        brand_profile = db.query(BrandProfile).filter(
+            BrandProfile.user_id == current_user.id,
+            BrandProfile.id == product.brand_profile_id
         ).first()
-        if not order:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No valid purchase found for this product")
-        if order.status == "cancelled":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Order has been cancelled")
 
-        # Increment download counter
-        order.digital_download_count = (order.digital_download_count or 0) + 1
-        db.commit()
+        if not brand_profile:
+            # Must be a verified buyer
+            if not order_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Provide your order_id to download this product."
+                )
+            order = db.query(Order).filter(
+                Order.id == order_id,
+                Order.product_id == product_id,
+                Order.customer_email == current_user.email,
+            ).first()
+            if not order:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No valid purchase found for this product")
+            if order.status == "cancelled":
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Order has been cancelled")
+
+            # Increment download counter
+            order.digital_download_count = (order.digital_download_count or 0) + 1
+            db.commit()
 
     # Generate presigned URL (24 h expiry)
     url = generate_download_url(product.digital_file_key)
@@ -763,3 +834,4 @@ async def delete_product_image_endpoint(
         "images": product.images,
         "thumbnail": product.thumbnail,
     }
+

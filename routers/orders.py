@@ -940,6 +940,135 @@ async def get_influencer_orders(
     return query.order_by(Order.created_at.desc()).all()
 
 
+# ============================================================================
+# ADMIN ENDPOINTS (must be before /{order_id} to avoid path conflicts)
+# ============================================================================
+
+@router.get("/admin/all")
+async def admin_get_all_orders(
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Admin: Get all orders across the system with pagination."""
+    from sqlalchemy import or_
+
+    # Check admin
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    if role_val.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query = db.query(Order).options(
+        joinedload(Order.product)
+    ).order_by(Order.created_at.desc())
+
+    if status_filter and status_filter != "all":
+        query = query.filter(Order.status == status_filter)
+
+    if search:
+        query = query.filter(or_(
+            Order.order_number.ilike(f"%{search}%"),
+            Order.customer_name.ilike(f"%{search}%"),
+            Order.customer_email.ilike(f"%{search}%"),
+        ))
+
+    total = query.count()
+    orders = query.offset((page - 1) * limit).limit(limit).all()
+
+    return {
+        "orders": [
+            {
+                "id": o.id,
+                "order_number": o.order_number,
+                "customer_name": o.customer_name,
+                "customer_email": o.customer_email,
+                "customer_phone": o.customer_phone,
+                "product_name": o.product.name if o.product else "N/A",
+                "product_id": o.product_id,
+                "is_digital": o.product.is_digital if o.product else False,
+                "has_digital_file": bool(o.product.digital_file_key) if o.product else False,
+                "quantity": o.quantity,
+                "unit_price": float(o.unit_price or 0),
+                "total_amount": float(o.total_amount or 0),
+                "currency": o.currency,
+                "status": o.status,
+                "payment_reference": o.payment_reference,
+                "affiliate_code": o.affiliate_code,
+                "commission_amount": float(o.commission_amount or 0),
+                "net_commission": float(o.net_commission or 0),
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+                "fulfilled_at": o.fulfilled_at.isoformat() if o.fulfilled_at else None,
+            }
+            for o in orders
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit
+    }
+
+
+@router.put("/admin/{order_id}/status")
+async def admin_update_order_status(
+    order_id: str,
+    status_update: OrderUpdateStatus,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Admin: Update any order's status."""
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    if role_val.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order.status = status_update.status
+    if status_update.status == "fulfilled":
+        order.fulfilled_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(order)
+
+    return {"success": True, "message": f"Order status updated to {status_update.status}"}
+
+
+@router.get("/admin/{order_id}/download")
+async def admin_download_digital_product(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Admin: Download digital product file for verification."""
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    if role_val.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    order = db.query(Order).options(joinedload(Order.product)).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    product = order.product
+    if not product or not product.is_digital or not product.digital_file_key:
+        raise HTTPException(status_code=400, detail="No digital file available for this product")
+
+    url = generate_download_url(product.digital_file_key)
+    return {
+        "download_url": url,
+        "file_name": product.digital_file_name,
+        "file_type": product.digital_file_type,
+        "expires_in_seconds": 86400,
+    }
+
+
+# ============================================================================
+# ORDER DETAILS & STATUS
+# ============================================================================
+
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order_details(
     order_id: str,
@@ -1163,3 +1292,4 @@ async def delete_order(
         success=True,
         message="Order deleted successfully"
     )
+
