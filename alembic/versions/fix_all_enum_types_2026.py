@@ -1,7 +1,7 @@
 """Fix all enum types - convert to varchar and update values to lowercase
 
-Revision ID: 2026_03_09_0000_fix_all_enum_types
-Revises: 2026_02_23_1623-c76d836672f6_add_tumanasi_tables
+Revision ID: fix_all_enum_types_2026
+Revises: c76d836672f6
 Create Date: 2026-03-09 00:00:00.000000
 
 This migration:
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '2026_03_09_0000_fix_all_enum_types'
-down_revision = '2026_02_23_1623-c76d836672f6_add_tumanasi_tables'
+revision = 'fix_all_enum_types_2026'
+down_revision = 'c76d836672f6'
 branch_labels = None
 depends_on = None
 
