@@ -228,11 +228,27 @@ def upgrade():
     for row in result:
         print(f"    {row.column_name}: {row.data_type}")
 
+    # ========================================================================
+    # STEP 9: Drop old native enum types
+    # ========================================================================
+    print("\n[9/9] Dropping old native PostgreSQL enum types...")
+    old_enum_types = [
+        'userrole', 'usertype', 'subscriptiontier', 'subscriptionstatus',
+        'contentstatus', 'teamrole', 'paymentstatus'
+    ]
+    for enum_type in old_enum_types:
+        try:
+            conn.execute(sa.text(f"DROP TYPE IF EXISTS {enum_type} CASCADE"))
+            print(f"  ✓ Dropped type: {enum_type}")
+        except Exception as e:
+            print(f"  ⚠ Could not drop {enum_type}: {e}")
+
     print("\n" + "=" * 80)
     print("✓ ENUM TYPE MIGRATION COMPLETED SUCCESSFULLY")
     print("=" * 80)
     print("\nAll enum types have been converted to varchar(20)")
     print("All values have been normalized to lowercase")
+    print("Old native enum types have been dropped")
     print("\nYou can now restart your application.")
     print("=" * 80 + "\n")
 
