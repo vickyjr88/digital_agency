@@ -109,10 +109,21 @@ def startup_event():
     try:
         admin_email = os.getenv("ADMIN_USER", "admin@dexter.com")
         admin_pass = os.getenv("ADMIN_PASS", "changeme")
-        
-        # Check if admin exists
-        admin = db.query(User).filter(User.email == admin_email).first()
-        
+
+        # Check if admin exists - use raw SQL to avoid enum conversion issues
+        admin = None
+        try:
+            admin = db.query(User).filter(User.email == admin_email).first()
+        except Exception as enum_error:
+            # If we get an enum error, database has old enum types
+            # Skip seeding until database migration is run
+            if "enum" in str(enum_error).lower() or "lookuperror" in str(enum_error).lower():
+                print(f"⚠️ Skipping seeding - database has old enum types. Run migration first: alembic upgrade head")
+                db.close()
+                return
+            else:
+                raise
+
         if not admin:
             print(f"🌱 Seeding Admin User: {admin_email}")
             admin = User(
