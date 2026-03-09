@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from database.config import get_db
 from database.models import User, Transaction, Content, Brand, PaymentStatus
 from database.marketplace_models import Campaign, InfluencerProfile
+from database.affiliate_models import Product, Order, BrandProfile
+from database.tumanasi_models import TumansiRider
 from auth.decorators import require_user_type, AuthError
 from auth.roles import UserType as UserTypeRole
 
@@ -47,8 +49,21 @@ async def get_analytics_dashboard(
     ).count()
     
     # 4. Marketplace Stats
-    total_influencers = db.query(InfluencerProfile).count()
+    total_influencer_profiles = db.query(InfluencerProfile).count()
     total_campaigns = db.query(Campaign).count()
+    
+    # 5. Commerce Stats
+    total_products = db.query(Product).count()
+    total_orders = db.query(Order).count()
+
+    # 6. Brands & Logistics
+    total_brands = db.query(Brand).count()
+    total_brand_profiles = db.query(BrandProfile).count()
+    total_riders = db.query(TumansiRider).count()
+    
+    # 7. Influencer Users vs Profiles
+    from database.models import UserType
+    total_influencer_users = db.query(User).filter(User.user_type == UserType.INFLUENCER).count()
     
     return {
         "users": {
@@ -64,8 +79,23 @@ async def get_analytics_dashboard(
             "generated_today": content_today
         },
         "marketplace": {
-            "influencers": total_influencers,
+            "influencers": total_influencer_profiles,
             "campaigns": total_campaigns
+        },
+        "influencers": {
+            "total_users": total_influencer_users,
+            "profiles": total_influencer_profiles
+        },
+        "commerce": {
+            "products": total_products,
+            "orders": total_orders
+        },
+        "brands": {
+            "total": total_brands,
+            "profiles": total_brand_profiles
+        },
+        "logistics": {
+            "riders": total_riders
         }
     }
 
