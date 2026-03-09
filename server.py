@@ -1680,6 +1680,36 @@ def get_admin_user_details(
         ]
     }
 
+@app.delete("/api/admin/users/{user_id}")
+def delete_admin_user(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # User's relationships defined with cascade="all, delete-orphan" will be deleted
+    # Verify/Delete manual dependent records from additional modules that are not direct SQLAlchemy relationships on the User model
+    
+    # 1. Affiliate profiles and entities (if affiliate models use the same session/DB structure)
+    try:
+        from database.affiliate_models import BrandProfile, AffiliateProfile
+        db.query(BrandProfile).filter(BrandProfile.user_id == user_id).delete()
+        db.query(AffiliateProfile).filter(AffiliateProfile.user_id == user_id).delete()
+    except ImportError:
+        pass
+        
+    # 2. Delete the user
+    db.delete(user)
+    db.commit()
+    
+    return {"message": "User deleted successfully", "id": user_id}
+
 @app.get("/api/admin/failures")
 def get_generation_failures(
     current_user: User = Depends(get_current_user),
