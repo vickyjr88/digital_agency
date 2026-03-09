@@ -1230,19 +1230,75 @@ def generate_content_on_demand(
 
 @app.get("/api/admin/users")
 def get_all_users(
+    search: Optional[str] = None,
+    user_type: Optional[str] = None,
+    role: Optional[str] = None,
+    subscription_tier: Optional[str] = None,
+    sort_by: Optional[str] = "created_at",
+    sort_order: Optional[str] = "desc",
+    page: int = 1,
+    limit: int = 20,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Get all users (Admin only).
+    Get all users (Admin only) with advanced filtering, sorting, and pagination.
     """
+    from sqlalchemy import or_
+    
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
         )
-    users = db.query(User).all()
-    return users
+        
+    query = db.query(User)
+    
+    if search:
+        query = query.filter(
+            or_(
+                User.name.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%")
+            )
+        )
+        
+    if user_type and user_type != "all":
+        query = query.filter(User.user_type == user_type)
+        
+    if role and role != "all":
+        query = query.filter(User.role == role)
+        
+    if subscription_tier and subscription_tier != "all":
+        query = query.filter(User.subscription_tier == subscription_tier)
+        
+    # Sorting
+    order_col = User.created_at
+    if sort_by == 'name':
+        order_col = User.name
+    elif sort_by == 'email':
+        order_col = User.email
+    elif sort_by == 'user_type':
+        order_col = User.user_type
+    elif sort_by == 'role':
+        order_col = User.role
+    elif sort_by == 'subscription_tier':
+        order_col = User.subscription_tier
+        
+    if sort_order == 'asc':
+        query = query.order_by(order_col.asc())
+    else:
+        query = query.order_by(order_col.desc())
+        
+    total = query.count()
+    users = query.offset((page - 1) * limit).limit(limit).all()
+    
+    return {
+        "users": users,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_more": total > (page * limit)
+    }
 
 
 class SubscriptionUpdate(BaseModel):
