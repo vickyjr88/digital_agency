@@ -224,6 +224,51 @@ async def get_my_brand_profile_legacy(
 
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
+@router.get("/storefronts/list")
+async def list_storefronts(
+    db: Session = Depends(get_db)
+):
+    """
+    Public: List all active brand storefronts with product counts.
+    Used by the shop to let customers browse by brand.
+    """
+    from database.affiliate_models import Product
+    from sqlalchemy import func as sqlfunc
+
+    profiles = (
+        db.query(BrandProfile)
+        .join(Brand, BrandProfile.brand_id == Brand.id)
+        .filter(BrandProfile.is_active == True)
+        .all()
+    )
+
+    results = []
+    for profile in profiles:
+        product_count = db.query(sqlfunc.count(Product.id)).filter(
+            Product.brand_profile_id == profile.id,
+            Product.status == "active"
+        ).scalar() or 0
+
+        # Only include brands that have at least one active product
+        if product_count == 0:
+            continue
+
+        results.append({
+            "id": profile.id,
+            "brand_id": profile.brand_id,
+            "brand_name": profile.brand.name if profile.brand else None,
+            "business_description": profile.business_description,
+            "business_category": profile.business_category,
+            "business_location": profile.business_location,
+            "website_url": profile.website_url,
+            "instagram_handle": profile.instagram_handle,
+            "facebook_page": profile.facebook_page,
+            "product_count": product_count,
+        })
+
+    return results
+
+
 @router.get("/{brand_profile_id}", response_model=BrandProfileResponse)
 async def get_brand_profile_public(
     brand_profile_id: str,

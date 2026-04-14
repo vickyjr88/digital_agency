@@ -155,6 +155,7 @@ async def list_products(
     category: Optional[str] = None,
     status: Optional[str] = "active",
     search: Optional[str] = None,
+    brand_profile_id: Optional[str] = None,
     min_commission: Optional[float] = None,
     max_commission: Optional[float] = None,
     page: int = Query(1, ge=1),
@@ -164,8 +165,9 @@ async def list_products(
     """
     List all products (marketplace view).
     Public endpoint for influencers to browse products.
+    Supports optional brand_profile_id filter for storefront views.
     """
-    query = db.query(Product)
+    query = db.query(Product).options(joinedload(Product.brand_profile))
 
     # Filters
     if status:
@@ -173,6 +175,9 @@ async def list_products(
 
     if category:
         query = query.filter(Product.category == category)
+
+    if brand_profile_id:
+        query = query.filter(Product.brand_profile_id == brand_profile_id)
 
     if search:
         search_term = f"%{search}%"
@@ -193,9 +198,40 @@ async def list_products(
 
     # Pagination
     total = query.count()
-    products = query.offset((page - 1) * page_size).limit(page_size).all()
+    products = query.order_by(Product.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
-    return products
+    # Enrich with brand name
+    results = []
+    for p in products:
+        brand_name = None
+        if p.brand_profile and p.brand_profile.brand:
+            brand_name = p.brand_profile.brand.name
+        results.append(ProductListItem(
+            id=p.id,
+            name=p.name,
+            slug=p.slug,
+            category=p.category,
+            price=p.price,
+            compare_at_price=p.compare_at_price,
+            currency=p.currency,
+            commission_type=p.commission_type,
+            commission_rate=p.commission_rate,
+            fixed_commission=p.fixed_commission,
+            thumbnail=p.thumbnail,
+            in_stock=p.in_stock,
+            status=p.status,
+            is_digital=p.is_digital,
+            has_digital_file=bool(p.digital_file_key),
+            total_clicks=p.total_clicks or 0,
+            total_orders=p.total_orders or 0,
+            active_affiliates_count=p.active_affiliates_count or 0,
+            pending_approvals_count=0,
+            brand_profile_id=p.brand_profile_id,
+            brand_name=brand_name,
+            description=p.description,
+        ))
+
+    return results
 
 
 @router.get("/my-products", response_model=List[ProductListItem])
@@ -474,9 +510,102 @@ async def delete_product(
 
 @router.get("/categories/list", response_model=List[str])
 async def list_categories(db: Session = Depends(get_db)):
-    """Get list of all product categories."""
-    categories = db.query(Product.category).distinct().all()
-    return [cat[0] for cat in categories if cat[0]]
+    """Get list of all product categories (only from active products)."""
+    categories = db.query(Product.category).filter(
+        Product.status == "active",
+        Product.category.isnot(None),
+        Product.category != ""
+    ).distinct().all()
+    return sorted([cat[0] for cat in categories if cat[0]])
+
+
+@router.get("/storefront/{brand_profile_id}")
+async def get_storefront(
+    brand_profile_id: str,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    Public storefront: brand profile info + its active products.
+    """
+    from database.models import Brand
+
+    profile = db.query(BrandProfile).filter(
+        BrandProfile.id == brand_profile_id,
+        BrandProfile.is_active == True
+    ).first()
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Storefront not found")
+
+    brand_name = profile.brand.name if profile.brand else None
+
+    # Products query
+    query = db.query(Product).filter(
+        Product.brand_profile_id == brand_profile_id,
+        Product.status == "active"
+    )
+
+    if category:
+        query = query.filter(Product.category == category)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(Product.name.ilike(search_term), Product.description.ilike(search_term))
+        )
+
+    total = query.count()
+    products = query.order_by(Product.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    # Get categories for this brand's products
+    brand_categories = db.query(Product.category).filter(
+        Product.brand_profile_id == brand_profile_id,
+        Product.status == "active",
+        Product.category.isnot(None),
+        Product.category != ""
+    ).distinct().all()
+
+    return {
+        "brand_profile": {
+            "id": profile.id,
+            "brand_id": profile.brand_id,
+            "brand_name": brand_name,
+            "business_description": profile.business_description,
+            "business_category": profile.business_category,
+            "business_location": profile.business_location,
+            "business_hours": profile.business_hours,
+            "website_url": profile.website_url,
+            "instagram_handle": profile.instagram_handle,
+            "facebook_page": profile.facebook_page,
+            "whatsapp_number": profile.whatsapp_number,
+        },
+        "categories": sorted([c[0] for c in brand_categories if c[0]]),
+        "products": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "slug": p.slug,
+                "category": p.category,
+                "price": float(p.price or 0),
+                "compare_at_price": float(p.compare_at_price) if p.compare_at_price else None,
+                "currency": p.currency,
+                "thumbnail": p.thumbnail,
+                "in_stock": p.in_stock,
+                "is_digital": p.is_digital,
+                "description": p.description,
+                "status": p.status,
+            }
+            for p in products
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size,
+    }
 
 
 @router.post("/{product_id}/variants", response_model=ProductVariantResponse, status_code=status.HTTP_201_CREATED)

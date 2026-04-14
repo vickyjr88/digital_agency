@@ -60,6 +60,7 @@ from routers.orders import router as orders_router
 from routers.affiliate_analytics import router as affiliate_analytics_router
 from routers.digital_products import router as digital_products_router
 from routers.tumanasi import router as tumanasi_router
+from routers.system_categories import router as system_categories_router
 
 load_dotenv()
 
@@ -97,6 +98,14 @@ def startup_event():
         print("✅ Tumanasi tables ready!")
     except Exception as e:
         print(f"⚠️ Tumanasi init warning: {e}")
+        
+    # Auto-seed system categories
+    try:
+        from seed_categories import seed_categories
+        seed_categories()
+        print("✅ System categories ready!")
+    except Exception as e:
+        print(f"⚠️ Category seeding warning: {e}")
 
     # Initialize PostHog analytics
     try:
@@ -248,6 +257,7 @@ app.include_router(orders_router)  # /api/orders
 app.include_router(affiliate_analytics_router)  # /api/affiliate-analytics
 app.include_router(digital_products_router)  # /api/digital-products
 app.include_router(tumanasi_router)            # /api/tumanasi
+app.include_router(system_categories_router, prefix="/api") # /api/categories
 
 # Security
 security = HTTPBearer()

@@ -204,9 +204,6 @@ class ProductCreate(BaseModel):
     weight: Optional[Decimal] = Field(None, gt=0)
     dimensions: Optional[Dict[str, float]] = None
 
-    # Digital product
-    is_digital: bool = False
-
     # Approval settings
     auto_approve: bool = False
     approval_criteria: Optional[Dict[str, Any]] = None
@@ -255,7 +252,6 @@ class ProductUpdate(BaseModel):
     approval_criteria: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     status: Optional[ProductStatus] = None
-    is_digital: Optional[bool] = None
 
 
 class ProductResponse(BaseModel):
@@ -303,7 +299,6 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     variants: List[ProductVariantResponse] = []
-    is_digital: bool = False
 
     class Config:
         from_attributes = True
@@ -337,7 +332,9 @@ class ProductListItem(BaseModel):
     total_orders: int
     active_affiliates_count: int
     pending_approvals_count: int = 0
-    is_digital: bool = False
+    brand_profile_id: Optional[str] = None
+    brand_name: Optional[str] = None
+    description: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -570,6 +567,28 @@ class TopPerformingAffiliate(BaseModel):
     sales_count: int
     total_sales: Decimal
     commission_earned: Decimal
+
+
+# ============================================================================
+# STOREFRONT SCHEMAS
+# ============================================================================
+
+class StorefrontListItem(BaseModel):
+    """Public brand storefront summary for browsing"""
+    id: str
+    brand_id: str
+    brand_name: Optional[str] = None
+    business_description: Optional[str] = None
+    business_category: Optional[str] = None
+    business_location: str
+    website_url: Optional[str] = None
+    instagram_handle: Optional[str] = None
+    facebook_page: Optional[str] = None
+    product_count: int = 0
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
 
 
 # ============================================================================
