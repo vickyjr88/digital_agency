@@ -54,6 +54,29 @@ class PreferredContactMethodDB(str, enum.Enum):
 
 
 # ============================================================================
+# SYSTEM DATA
+# ============================================================================
+
+class CategoryType(str, enum.Enum):
+    PRODUCT = "product"
+    BRAND = "brand"
+
+class SystemCategory(Base):
+    """System-defined categories for products and brands."""
+    __tablename__ = "system_categories"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(100), nullable=False, unique=True, index=True)
+    type = Column(
+        Enum(CategoryType, values_callable=lambda x: [e.value for e in x], name="categorytype"),
+        nullable=False
+    )
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+# ============================================================================
 # BRAND PROFILE EXTENSION (Contact Information)
 # ============================================================================
 
