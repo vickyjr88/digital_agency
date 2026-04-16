@@ -1055,9 +1055,8 @@ def admin_create_rider(
         id       = str(uuid.uuid4()),
         email    = body.email or f"{body.phone.replace('+', '')}@tumanasi.local",
         name     = body.full_name,
-        password = get_password_hash(body.password),
+        password_hash = get_password_hash(body.password),
         role     = UserRole.USER,
-        is_active = True,
     )
     db.add(new_user)
     db.flush()  # get user.id
@@ -1100,7 +1099,7 @@ def admin_reset_rider_password(
     if not user:
         raise HTTPException(status_code=404, detail="User account not found")
 
-    user.password = get_password_hash(body.new_password)
+    user.password_hash = get_password_hash(body.new_password)
     db.commit()
     return {"success": True, "message": f"Password reset for {rider.full_name}"}
 
