@@ -376,3 +376,116 @@ class TumansiStats(BaseModel):
     active_riders:       int
     verified_riders:     int
     avg_completion_rate: Optional[Decimal]
+
+
+# ============================================================================
+# EXPENSE TRACKER SCHEMAS
+# ============================================================================
+
+class ExpenseCategory(str, Enum):
+    FUEL            = "fuel"
+    MAINTENANCE     = "maintenance"
+    MARKETING       = "marketing"
+    OFFICE_SUPPLIES = "office_supplies"
+    UTILITIES       = "utilities"
+    INSURANCE       = "insurance"
+    EQUIPMENT       = "equipment"
+    RENT            = "rent"
+    SALARIES        = "salaries"
+    POLICE          = "police"
+    COUNTY_OFFICIALS = "county_officials"
+    OTHER           = "other"
+
+
+class ExpenseCreate(BaseModel):
+    expense_date:   datetime
+    category:       ExpenseCategory
+    amount_kes:     Decimal = Field(..., gt=0)
+    description:    str = Field(..., min_length=3)
+    payment_method: Optional[str] = None
+    receipt_url:    Optional[str] = None
+
+
+class ExpenseUpdate(BaseModel):
+    expense_date:   Optional[datetime] = None
+    category:       Optional[ExpenseCategory] = None
+    amount_kes:     Optional[Decimal] = Field(None, gt=0)
+    description:    Optional[str] = None
+    payment_method: Optional[str] = None
+    receipt_url:    Optional[str] = None
+
+
+class ExpenseResponse(BaseModel):
+    id:             str
+    expense_date:   datetime
+    category:       str
+    amount_kes:     Decimal
+    description:    str
+    payment_method: Optional[str]
+    receipt_url:    Optional[str]
+    created_by_name: Optional[str] = None
+    created_at:     datetime
+    updated_at:     datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# RIDER PAYMENT TRACKER SCHEMAS
+# ============================================================================
+
+class RiderPaymentMethod(str, Enum):
+    CASH          = "cash"
+    MPESA         = "mpesa"
+    BANK_TRANSFER = "bank_transfer"
+    CHEQUE        = "cheque"
+
+
+class RiderPaymentCreate(BaseModel):
+    rider_id:              str
+    payment_date:          datetime
+    payment_period_start:  datetime
+    payment_period_end:    datetime
+    deliveries_completed:  int = Field(..., ge=0)
+    total_earnings_kes:    Decimal = Field(..., ge=0)
+    deductions_kes:        Decimal = Field(default=Decimal("0.00"), ge=0)
+    net_payment_kes:       Decimal = Field(..., gt=0)
+    payment_method:        RiderPaymentMethod
+    payment_reference:     Optional[str] = None
+    notes:                 Optional[str] = None
+
+
+class RiderPaymentUpdate(BaseModel):
+    payment_date:          Optional[datetime] = None
+    payment_period_start:  Optional[datetime] = None
+    payment_period_end:    Optional[datetime] = None
+    deliveries_completed:  Optional[int] = None
+    total_earnings_kes:    Optional[Decimal] = None
+    deductions_kes:        Optional[Decimal] = None
+    net_payment_kes:       Optional[Decimal] = None
+    payment_method:        Optional[RiderPaymentMethod] = None
+    payment_reference:     Optional[str] = None
+    notes:                 Optional[str] = None
+
+
+class RiderPaymentResponse(BaseModel):
+    id:                    str
+    rider_id:              str
+    rider_name:            str
+    payment_date:          datetime
+    payment_period_start:  datetime
+    payment_period_end:    datetime
+    deliveries_completed:  int
+    total_earnings_kes:    Decimal
+    deductions_kes:        Decimal
+    net_payment_kes:       Decimal
+    payment_method:        str
+    payment_reference:     Optional[str]
+    notes:                 Optional[str]
+    paid_by_name:          Optional[str] = None
+    created_at:            datetime
+    updated_at:            datetime
+
+    class Config:
+        from_attributes = True

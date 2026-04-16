@@ -14,6 +14,7 @@ from database.config import get_db
 from database.models import User, UserRole
 from database.tumanasi_models import (
     TumansiZone, TumansiDelivery, TumansiRider, TumansiRiderRating,
+    TumansiExpense, TumansiRiderPayment,
     DeliveryStatusDB, PaymentStatusDB
 )
 from schemas.tumanasi import (
@@ -25,7 +26,9 @@ from schemas.tumanasi import (
     AdminRiderVerify, AdminRiderCreate, AdminRiderResetPassword,
     AdminAssignRider, AdminZoneCreate, AdminZoneUpdate,
     AdminDeliveryUpdate,
-    TumansiStats
+    TumansiStats,
+    ExpenseCreate, ExpenseUpdate, ExpenseResponse,
+    RiderPaymentCreate, RiderPaymentUpdate, RiderPaymentResponse
 )
 from auth.dependencies import get_current_user
 
@@ -1186,3 +1189,311 @@ def admin_available_riders(
         }
         for r in riders
     ]
+
+
+# ============================================================================
+# EXPENSE TRACKER
+# ============================================================================
+
+@router.get("/admin/expenses", response_model=List[ExpenseResponse])
+def admin_list_expenses(
+    category:  Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date:   Optional[datetime] = Query(None),
+    skip:      int = Query(0, ge=0),
+    limit:     int = Query(50, le=200),
+    db:        Session = Depends(get_db),
+    _:         User = Depends(require_admin),
+):
+    """List all expenses with optional filters."""
+    q = db.query(TumansiExpense)
+
+    if category:
+        q = q.filter(TumansiExpense.category == category)
+    if start_date:
+        q = q.filter(TumansiExpense.expense_date >= start_date)
+    if end_date:
+        q = q.filter(TumansiExpense.expense_date <= end_date)
+
+    expenses = q.order_by(desc(TumansiExpense.expense_date)).offset(skip).limit(limit).all()
+
+    return [
+        ExpenseResponse(
+            id=e.id,
+            expense_date=e.expense_date,
+            category=e.category,
+            amount_kes=e.amount_kes,
+            description=e.description,
+            payment_method=e.payment_method,
+            receipt_url=e.receipt_url,
+            created_by_name=e.created_by.name if e.created_by else None,
+            created_at=e.created_at,
+            updated_at=e.updated_at
+        )
+        for e in expenses
+    ]
+
+
+@router.post("/admin/expenses", response_model=ExpenseResponse, status_code=201)
+def admin_create_expense(
+    body: ExpenseCreate,
+    db:   Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Create a new expense record."""
+    expense = TumansiExpense(
+        id=str(uuid.uuid4()),
+        expense_date=body.expense_date,
+        category=body.category,
+        amount_kes=body.amount_kes,
+        description=body.description,
+        payment_method=body.payment_method,
+        receipt_url=body.receipt_url,
+        created_by_id=user.id,
+    )
+    db.add(expense)
+    db.commit()
+    db.refresh(expense)
+
+    return ExpenseResponse(
+        id=expense.id,
+        expense_date=expense.expense_date,
+        category=expense.category,
+        amount_kes=expense.amount_kes,
+        description=expense.description,
+        payment_method=expense.payment_method,
+        receipt_url=expense.receipt_url,
+        created_by_name=user.name,
+        created_at=expense.created_at,
+        updated_at=expense.updated_at
+    )
+
+
+@router.put("/admin/expenses/{expense_id}", response_model=ExpenseResponse)
+def admin_update_expense(
+    expense_id: str,
+    body:       ExpenseUpdate,
+    db:         Session = Depends(get_db),
+    _:          User = Depends(require_admin),
+):
+    """Update an existing expense."""
+    expense = db.query(TumansiExpense).filter(TumansiExpense.id == expense_id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    if body.expense_date is not None:
+        expense.expense_date = body.expense_date
+    if body.category is not None:
+        expense.category = body.category
+    if body.amount_kes is not None:
+        expense.amount_kes = body.amount_kes
+    if body.description is not None:
+        expense.description = body.description
+    if body.payment_method is not None:
+        expense.payment_method = body.payment_method
+    if body.receipt_url is not None:
+        expense.receipt_url = body.receipt_url
+
+    db.commit()
+    db.refresh(expense)
+
+    return ExpenseResponse(
+        id=expense.id,
+        expense_date=expense.expense_date,
+        category=expense.category,
+        amount_kes=expense.amount_kes,
+        description=expense.description,
+        payment_method=expense.payment_method,
+        receipt_url=expense.receipt_url,
+        created_by_name=expense.created_by.name if expense.created_by else None,
+        created_at=expense.created_at,
+        updated_at=expense.updated_at
+    )
+
+
+@router.delete("/admin/expenses/{expense_id}")
+def admin_delete_expense(
+    expense_id: str,
+    db:         Session = Depends(get_db),
+    _:          User = Depends(require_admin),
+):
+    """Delete an expense record."""
+    expense = db.query(TumansiExpense).filter(TumansiExpense.id == expense_id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    db.delete(expense)
+    db.commit()
+    return {"success": True, "message": "Expense deleted"}
+
+
+# ============================================================================
+# RIDER PAYMENT TRACKER
+# ============================================================================
+
+@router.get("/admin/rider-payments", response_model=List[RiderPaymentResponse])
+def admin_list_rider_payments(
+    rider_id:   Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date:   Optional[datetime] = Query(None),
+    skip:       int = Query(0, ge=0),
+    limit:      int = Query(50, le=200),
+    db:         Session = Depends(get_db),
+    _:          User = Depends(require_admin),
+):
+    """List all rider payments with optional filters."""
+    q = db.query(TumansiRiderPayment)
+
+    if rider_id:
+        q = q.filter(TumansiRiderPayment.rider_id == rider_id)
+    if start_date:
+        q = q.filter(TumansiRiderPayment.payment_date >= start_date)
+    if end_date:
+        q = q.filter(TumansiRiderPayment.payment_date <= end_date)
+
+    payments = q.order_by(desc(TumansiRiderPayment.payment_date)).offset(skip).limit(limit).all()
+
+    return [
+        RiderPaymentResponse(
+            id=p.id,
+            rider_id=p.rider_id,
+            rider_name=p.rider.full_name if p.rider else "Unknown",
+            payment_date=p.payment_date,
+            payment_period_start=p.payment_period_start,
+            payment_period_end=p.payment_period_end,
+            deliveries_completed=p.deliveries_completed,
+            total_earnings_kes=p.total_earnings_kes,
+            deductions_kes=p.deductions_kes,
+            net_payment_kes=p.net_payment_kes,
+            payment_method=p.payment_method,
+            payment_reference=p.payment_reference,
+            notes=p.notes,
+            paid_by_name=p.paid_by.name if p.paid_by else None,
+            created_at=p.created_at,
+            updated_at=p.updated_at
+        )
+        for p in payments
+    ]
+
+
+@router.post("/admin/rider-payments", response_model=RiderPaymentResponse, status_code=201)
+def admin_create_rider_payment(
+    body: RiderPaymentCreate,
+    db:   Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Record a new rider payment."""
+    # Verify rider exists
+    rider = db.query(TumansiRider).filter(TumansiRider.id == body.rider_id).first()
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+
+    payment = TumansiRiderPayment(
+        id=str(uuid.uuid4()),
+        rider_id=body.rider_id,
+        payment_date=body.payment_date,
+        payment_period_start=body.payment_period_start,
+        payment_period_end=body.payment_period_end,
+        deliveries_completed=body.deliveries_completed,
+        total_earnings_kes=body.total_earnings_kes,
+        deductions_kes=body.deductions_kes,
+        net_payment_kes=body.net_payment_kes,
+        payment_method=body.payment_method,
+        payment_reference=body.payment_reference,
+        notes=body.notes,
+        paid_by_id=user.id,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+
+    return RiderPaymentResponse(
+        id=payment.id,
+        rider_id=payment.rider_id,
+        rider_name=rider.full_name,
+        payment_date=payment.payment_date,
+        payment_period_start=payment.payment_period_start,
+        payment_period_end=payment.payment_period_end,
+        deliveries_completed=payment.deliveries_completed,
+        total_earnings_kes=payment.total_earnings_kes,
+        deductions_kes=payment.deductions_kes,
+        net_payment_kes=payment.net_payment_kes,
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        notes=payment.notes,
+        paid_by_name=user.name,
+        created_at=payment.created_at,
+        updated_at=payment.updated_at
+    )
+
+
+@router.put("/admin/rider-payments/{payment_id}", response_model=RiderPaymentResponse)
+def admin_update_rider_payment(
+    payment_id: str,
+    body:       RiderPaymentUpdate,
+    db:         Session = Depends(get_db),
+    _:          User = Depends(require_admin),
+):
+    """Update an existing rider payment."""
+    payment = db.query(TumansiRiderPayment).filter(TumansiRiderPayment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if body.payment_date is not None:
+        payment.payment_date = body.payment_date
+    if body.payment_period_start is not None:
+        payment.payment_period_start = body.payment_period_start
+    if body.payment_period_end is not None:
+        payment.payment_period_end = body.payment_period_end
+    if body.deliveries_completed is not None:
+        payment.deliveries_completed = body.deliveries_completed
+    if body.total_earnings_kes is not None:
+        payment.total_earnings_kes = body.total_earnings_kes
+    if body.deductions_kes is not None:
+        payment.deductions_kes = body.deductions_kes
+    if body.net_payment_kes is not None:
+        payment.net_payment_kes = body.net_payment_kes
+    if body.payment_method is not None:
+        payment.payment_method = body.payment_method
+    if body.payment_reference is not None:
+        payment.payment_reference = body.payment_reference
+    if body.notes is not None:
+        payment.notes = body.notes
+
+    db.commit()
+    db.refresh(payment)
+
+    return RiderPaymentResponse(
+        id=payment.id,
+        rider_id=payment.rider_id,
+        rider_name=payment.rider.full_name if payment.rider else "Unknown",
+        payment_date=payment.payment_date,
+        payment_period_start=payment.payment_period_start,
+        payment_period_end=payment.payment_period_end,
+        deliveries_completed=payment.deliveries_completed,
+        total_earnings_kes=payment.total_earnings_kes,
+        deductions_kes=payment.deductions_kes,
+        net_payment_kes=payment.net_payment_kes,
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        notes=payment.notes,
+        paid_by_name=payment.paid_by.name if payment.paid_by else None,
+        created_at=payment.created_at,
+        updated_at=payment.updated_at
+    )
+
+
+@router.delete("/admin/rider-payments/{payment_id}")
+def admin_delete_rider_payment(
+    payment_id: str,
+    db:         Session = Depends(get_db),
+    _:          User = Depends(require_admin),
+):
+    """Delete a rider payment record."""
+    payment = db.query(TumansiRiderPayment).filter(TumansiRiderPayment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    db.delete(payment)
+    db.commit()
+    return {"success": True, "message": "Payment record deleted"}

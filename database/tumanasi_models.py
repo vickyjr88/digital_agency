@@ -62,6 +62,28 @@ class DeliveryStatusDB(str, enum.Enum):
     FAILED              = "failed"
 
 
+class ExpenseCategoryDB(str, enum.Enum):
+    FUEL             = "fuel"
+    MAINTENANCE      = "maintenance"
+    MARKETING        = "marketing"
+    OFFICE_SUPPLIES  = "office_supplies"
+    UTILITIES        = "utilities"
+    INSURANCE        = "insurance"
+    EQUIPMENT        = "equipment"
+    RENT             = "rent"
+    SALARIES         = "salaries"
+    POLICE           = "police"
+    COUNTY_OFFICIALS = "county_officials"
+    OTHER            = "other"
+
+
+class RiderPaymentMethodDB(str, enum.Enum):
+    CASH            = "cash"
+    MPESA           = "mpesa"
+    BANK_TRANSFER   = "bank_transfer"
+    CHEQUE          = "cheque"
+
+
 # ============================================================================
 # PRICING ZONES
 # ============================================================================
@@ -241,3 +263,70 @@ class TumansiRiderRating(Base):
     # Relationships
     delivery = relationship("TumansiDelivery", back_populates="rating")
     rider    = relationship("TumansiRider", back_populates="ratings")
+
+
+# ============================================================================
+# EXPENSE TRACKER
+# ============================================================================
+
+class TumansiExpense(Base):
+    """Track operational expenses for the delivery business."""
+    __tablename__ = "tumanasi_expenses"
+
+    id             = Column(String(36), primary_key=True, default=generate_uuid)
+    expense_date   = Column(DateTime, nullable=False)
+    category       = Column(
+        Enum(ExpenseCategoryDB, values_callable=lambda x: [e.value for e in x], name="expensecategorydb"),
+        nullable=False
+    )
+    amount_kes     = Column(Numeric(12, 2), nullable=False)
+    description    = Column(Text, nullable=False)
+    payment_method = Column(String(50))  # cash, mpesa, card, etc.
+    receipt_url    = Column(String(500))  # Optional receipt photo/document
+    created_by_id  = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at     = Column(DateTime, server_default=func.now())
+    updated_at     = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+    def __repr__(self):
+        return f"<Expense {self.category} KES {self.amount_kes} on {self.expense_date}>"
+
+
+# ============================================================================
+# RIDER PAYMENT TRACKER
+# ============================================================================
+
+class TumansiRiderPayment(Base):
+    """Track payments made to riders."""
+    __tablename__ = "tumanasi_rider_payments"
+
+    id                     = Column(String(36), primary_key=True, default=generate_uuid)
+    rider_id               = Column(String(36), ForeignKey("tumanasi_riders.id", ondelete="CASCADE"), nullable=False)
+    payment_date           = Column(DateTime, nullable=False)
+    payment_period_start   = Column(DateTime, nullable=False)  # Start of payment period
+    payment_period_end     = Column(DateTime, nullable=False)  # End of payment period
+
+    deliveries_completed   = Column(Integer, default=0)        # Count of deliveries in period
+    total_earnings_kes     = Column(Numeric(12, 2), default=0.00)  # Total from deliveries
+    deductions_kes         = Column(Numeric(12, 2), default=0.00)  # Any deductions
+    net_payment_kes        = Column(Numeric(12, 2), nullable=False)  # Final amount paid
+
+    payment_method         = Column(
+        Enum(RiderPaymentMethodDB, values_callable=lambda x: [e.value for e in x], name="riderpaymentmethoddb"),
+        nullable=False
+    )
+    payment_reference      = Column(String(100))  # Transaction ID, cheque number, etc.
+    notes                  = Column(Text)         # Additional notes
+
+    paid_by_id             = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at             = Column(DateTime, server_default=func.now())
+    updated_at             = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    rider   = relationship("TumansiRider", backref="payments")
+    paid_by = relationship("User", foreign_keys=[paid_by_id])
+
+    def __repr__(self):
+        return f"<RiderPayment {self.rider.full_name if self.rider else 'Unknown'} KES {self.net_payment_kes} on {self.payment_date}>"
