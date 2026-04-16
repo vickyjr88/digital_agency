@@ -206,11 +206,20 @@ def shutdown_event():
         print(f"⚠️ PostHog shutdown warning: {e}")
 
 
-# CORS Setup - Allow all origins
+# CORS Setup - Allow specific origins with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # Required when using "*"
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://192.168.64.1:5173",
+        "http://192.168.64.1:5174",
+        "http://192.168.64.1:5175",
+        "https://dexter.vitaldigitalmedia.net",
+        "https://tumanasi.vitaldigitalmedia.net",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
