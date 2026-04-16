@@ -292,6 +292,27 @@ class AdminRiderVerify(BaseModel):
     verification_notes: Optional[str] = None
 
 
+class AdminRiderCreate(BaseModel):
+    """Admin creates rider with user account."""
+    full_name:    str = Field(..., min_length=2)
+    phone:        str = Field(..., description="Phone e.g. +254712345678")
+    email:        Optional[str] = None
+    password:     str = Field(..., min_length=6)
+    vehicle_type: VehicleType = VehicleType.MOTORCYCLE
+    vehicle_reg:  Optional[str] = None
+
+    @validator("phone")
+    def validate_phone(cls, v):
+        if not v.startswith("+"):
+            raise ValueError("Phone must include country code e.g. +254712345678")
+        return v
+
+
+class AdminRiderResetPassword(BaseModel):
+    """Admin resets rider password."""
+    new_password: str = Field(..., min_length=6)
+
+
 class AdminAssignRider(BaseModel):
     rider_id: str
 

@@ -22,7 +22,8 @@ from schemas.tumanasi import (
     DeliveryCreate, DeliveryStatusUpdate, DeliveryCancel,
     RateRider, InitiatePayment,
     DeliveryResponse, DeliveryListItem,
-    AdminRiderVerify, AdminAssignRider, AdminZoneCreate, AdminZoneUpdate,
+    AdminRiderVerify, AdminRiderCreate, AdminRiderResetPassword,
+    AdminAssignRider, AdminZoneCreate, AdminZoneUpdate,
     AdminDeliveryUpdate,
     TumansiStats
 )
@@ -856,6 +857,67 @@ def admin_list_deliveries(
     ) for d in rows]
 
 
+@router.post("/admin/deliveries", response_model=DeliveryResponse, status_code=201)
+def admin_create_delivery(
+    body: DeliveryCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    Admin creates a delivery on behalf of a customer.
+    Similar to public booking but bypasses customer authentication.
+    Does NOT auto-assign a rider - stays in pending_assignment.
+    """
+    # Resolve price from dropoff zone
+    dropoff_zone = db.query(TumansiZone).filter(
+        TumansiZone.id == body.dropoff_area_id,
+        TumansiZone.is_active == True,
+    ).first()
+    if not dropoff_zone:
+        raise HTTPException(status_code=400, detail="Invalid dropoff zone. Please select from the list.")
+
+    tracking = generate_tracking_number()
+
+    delivery = TumansiDelivery(
+        id              = str(uuid.uuid4()),
+        tracking_number = tracking,
+
+        customer_user_id = None,  # Admin-created deliveries have no user association
+        customer_name    = body.customer_name,
+        customer_phone   = body.customer_phone,
+        customer_email   = body.customer_email,
+
+        errand_type          = body.errand_type,
+        errand_description   = body.errand_description,
+        special_instructions = body.special_instructions,
+        is_fragile           = body.is_fragile,
+        requires_handling    = body.requires_handling,
+
+        pickup_address       = body.pickup_address,
+        pickup_area_id       = body.pickup_area_id,
+        pickup_contact_name  = body.pickup_contact_name or body.customer_name,
+        pickup_contact_phone = body.pickup_contact_phone or body.customer_phone,
+
+        dropoff_address       = body.dropoff_address,
+        dropoff_area_id       = body.dropoff_area_id,
+        dropoff_contact_name  = body.dropoff_contact_name or body.customer_name,
+        dropoff_contact_phone = body.dropoff_contact_phone or body.customer_phone,
+
+        quoted_price_kes = dropoff_zone.price_kes,
+        final_price_kes  = dropoff_zone.price_kes,
+        payment_method   = body.payment_method,
+        payment_status   = PaymentStatusDB.PENDING,
+        status           = DeliveryStatusDB.PENDING_ASSIGNMENT,
+
+        estimated_delivery_at = datetime.utcnow() + timedelta(hours=2),
+    )
+
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
 @router.put("/admin/deliveries/{delivery_id}", response_model=DeliveryResponse)
 def admin_update_delivery(
     delivery_id: str,
@@ -963,6 +1025,85 @@ def admin_verify_rider(
         rider.is_available = False
     db.commit()
     return {"success": True, "is_verified": rider.is_verified}
+
+
+@router.post("/admin/riders", response_model=RiderResponse, status_code=201)
+def admin_create_rider(
+    body: AdminRiderCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    Admin creates a rider account with a User.
+    Creates both the User and TumansiRider records.
+    """
+    from database.models import User, UserRole
+    from core.security import hash_password
+
+    # Check if phone is already taken
+    phone_conflict = db.query(TumansiRider).filter(TumansiRider.phone == body.phone).first()
+    if phone_conflict:
+        raise HTTPException(status_code=400, detail="Phone number already registered as a rider")
+
+    # Check if user with this email or phone exists
+    if body.email:
+        email_user = db.query(User).filter(User.email == body.email).first()
+        if email_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Create User account
+    new_user = User(
+        id       = str(uuid.uuid4()),
+        email    = body.email or f"{body.phone.replace('+', '')}@tumanasi.local",
+        name     = body.full_name,
+        password = hash_password(body.password),
+        role     = UserRole.USER,
+        is_active = True,
+    )
+    db.add(new_user)
+    db.flush()  # get user.id
+
+    # Create Rider profile
+    rider = TumansiRider(
+        id           = str(uuid.uuid4()),
+        user_id      = new_user.id,
+        full_name    = body.full_name,
+        phone        = body.phone,
+        email        = body.email or new_user.email,
+        vehicle_type = body.vehicle_type,
+        vehicle_reg  = body.vehicle_reg,
+        is_verified  = True,  # Admin-created riders are auto-verified
+    )
+    db.add(rider)
+    db.commit()
+    db.refresh(rider)
+    return rider
+
+
+@router.put("/admin/riders/{rider_id}/reset-password")
+def admin_reset_rider_password(
+    rider_id: str,
+    body: AdminRiderResetPassword,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Admin resets a rider's password directly (no email confirmation)."""
+    from core.security import hash_password
+
+    rider = db.query(TumansiRider).filter(TumansiRider.id == rider_id).first()
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+
+    if not rider.user_id:
+        raise HTTPException(status_code=400, detail="Rider has no associated user account")
+
+    user = db.query(User).filter(User.id == rider.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    user.password = hash_password(body.new_password)
+    db.commit()
+    return {"success": True, "message": f"Password reset for {rider.full_name}"}
 
 
 @router.post("/admin/zones", response_model=ZoneResponse, status_code=201)

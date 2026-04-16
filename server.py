@@ -1531,6 +1531,51 @@ def get_admin_stats(
     # Take top 10
     recent_transactions_data = combined_txs[:10]
 
+    # Model Overview Counts
+    try:
+        from database.marketplace_models import Campaign, Package, Bid, Dispute
+        total_campaigns = db.query(Campaign).count()
+        total_packages = db.query(Package).count()
+        total_bids = db.query(Bid).count()
+        total_disputes = db.query(Dispute).count()
+    except:
+        total_campaigns = total_packages = total_bids = total_disputes = 0
+
+    try:
+        from database.affiliate_models import Product, Order, BrandProfile, AffiliateProfile
+        total_products = db.query(Product).count()
+        total_orders = db.query(Order).count()
+        total_brand_profiles = db.query(BrandProfile).count()
+        total_affiliate_profiles = db.query(AffiliateProfile).count()
+    except:
+        total_products = total_orders = total_brand_profiles = total_affiliate_profiles = 0
+
+    try:
+        from database.tumanasi_models import TumansiRider
+        total_riders = db.query(TumansiRider).count()
+    except:
+        total_riders = 0
+        
+    model_counts = {
+        "Users": total_users,
+        "Brands": total_brands,
+        "Content": total_content,
+        "Trends": total_trends,
+        "Transactions": db.query(Transaction).count(),
+        "Wallet Transactions": db.query(WalletTransaction).count(),
+        "Influencer Profiles": db.query(InfluencerProfile).count(),
+        "Packages": total_packages,
+        "Campaigns": total_campaigns,
+        "Bids": total_bids,
+        "Disputes": total_disputes,
+        "Products": total_products,
+        "Orders": total_orders,
+        "Brand Profiles": total_brand_profiles,
+        "Affiliate Profiles": total_affiliate_profiles,
+        "Logistics Riders": total_riders,
+        "Generation Failures": db.query(GenerationFailure).count()
+    }
+
     return {
         "revenue": {
             "total": total_revenue_amount,
@@ -1542,7 +1587,8 @@ def get_admin_stats(
             "influencers": db.query(InfluencerProfile).count()
         },
         "content": total_content,
-        "recent_transactions": recent_transactions_data
+        "recent_transactions": recent_transactions_data,
+        "model_counts": model_counts
     }
 
 @app.get("/api/admin/orders")
