@@ -1037,8 +1037,7 @@ def admin_create_rider(
     Admin creates a rider account with a User.
     Creates both the User and TumansiRider records.
     """
-    from database.models import User, UserRole
-    from core.security import hash_password
+    from auth.utils import get_password_hash
 
     # Check if phone is already taken
     phone_conflict = db.query(TumansiRider).filter(TumansiRider.phone == body.phone).first()
@@ -1056,7 +1055,7 @@ def admin_create_rider(
         id       = str(uuid.uuid4()),
         email    = body.email or f"{body.phone.replace('+', '')}@tumanasi.local",
         name     = body.full_name,
-        password = hash_password(body.password),
+        password = get_password_hash(body.password),
         role     = UserRole.USER,
         is_active = True,
     )
@@ -1088,7 +1087,7 @@ def admin_reset_rider_password(
     _: User = Depends(require_admin),
 ):
     """Admin resets a rider's password directly (no email confirmation)."""
-    from core.security import hash_password
+    from auth.utils import get_password_hash
 
     rider = db.query(TumansiRider).filter(TumansiRider.id == rider_id).first()
     if not rider:
@@ -1101,7 +1100,7 @@ def admin_reset_rider_password(
     if not user:
         raise HTTPException(status_code=404, detail="User account not found")
 
-    user.password = hash_password(body.new_password)
+    user.password = get_password_hash(body.new_password)
     db.commit()
     return {"success": True, "message": f"Password reset for {rider.full_name}"}
 
