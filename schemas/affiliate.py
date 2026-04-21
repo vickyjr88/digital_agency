@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from core.minio_service import sign_url
 
 
 # ============================================================================
@@ -308,6 +309,13 @@ class ProductResponse(BaseModel):
         # Populate convenience flag
         data = super().from_orm(obj)
         data.has_digital_file = bool(obj.digital_file_key)
+        
+        # Sign URLs
+        if data.thumbnail:
+            data.thumbnail = sign_url(data.thumbnail)
+        if data.images:
+            data.images = [sign_url(img) for img in data.images]
+            
         return data
 
 
@@ -343,6 +351,11 @@ class ProductListItem(BaseModel):
     def from_orm(cls, obj):
         data = super().from_orm(obj)
         data.has_digital_file = bool(obj.digital_file_key)
+        
+        # Sign URL
+        if data.thumbnail:
+            data.thumbnail = sign_url(data.thumbnail)
+            
         return data
 
 

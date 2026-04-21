@@ -13,6 +13,7 @@ from core.minio_service import (
     delete_digital_product,
     upload_product_image,
     delete_product_image,
+    sign_url,
 )
 
 ALLOWED_IMAGE_MIME_TYPES = {
@@ -200,12 +201,16 @@ async def list_products(
     total = query.count()
     products = query.order_by(Product.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
-    # Enrich with brand name
+    # Enrich with brand name and signed URLs
     results = []
     for p in products:
         brand_name = None
         if p.brand_profile and p.brand_profile.brand:
             brand_name = p.brand_profile.brand.name
+        
+        # Sign URLs
+        thumbnail = sign_url(p.thumbnail) if p.thumbnail else None
+        
         results.append(ProductListItem(
             id=p.id,
             name=p.name,
@@ -217,7 +222,7 @@ async def list_products(
             commission_type=p.commission_type,
             commission_rate=p.commission_rate,
             fixed_commission=p.fixed_commission,
-            thumbnail=p.thumbnail,
+            thumbnail=thumbnail,
             in_stock=p.in_stock,
             status=p.status,
             is_digital=p.is_digital,
@@ -281,7 +286,7 @@ async def list_my_products(
             AffiliateApproval.status == "pending"
         ).scalar() or 0
 
-        # Create response item
+        # Create response item with signed thumbnail
         product_dict = {
             "id": product.id,
             "name": product.name,
@@ -293,7 +298,7 @@ async def list_my_products(
             "commission_type": product.commission_type,
             "commission_rate": product.commission_rate,
             "fixed_commission": product.fixed_commission,
-            "thumbnail": product.thumbnail,
+            "thumbnail": sign_url(product.thumbnail) if product.thumbnail else None,
             "in_stock": product.in_stock,
             "status": product.status,
             "is_digital": product.is_digital,
@@ -356,7 +361,7 @@ async def admin_get_all_products(
                 "has_digital_file": bool(p.digital_file_key),
                 "digital_file_name": p.digital_file_name,
                 "digital_file_type": p.digital_file_type,
-                "thumbnail": p.thumbnail,
+                "thumbnail": sign_url(p.thumbnail) if p.thumbnail else None,
                 "in_stock": p.in_stock,
                 "total_orders": p.total_orders,
                 "total_sales_amount": float(p.total_sales_amount or 0),
@@ -593,7 +598,7 @@ async def get_storefront(
                 "price": float(p.price or 0),
                 "compare_at_price": float(p.compare_at_price) if p.compare_at_price else None,
                 "currency": p.currency,
-                "thumbnail": p.thumbnail,
+                "thumbnail": sign_url(p.thumbnail) if p.thumbnail else None,
                 "in_stock": p.in_stock,
                 "is_digital": p.is_digital,
                 "description": p.description,
@@ -897,24 +902,26 @@ async def upload_product_image_endpoint(
     )
 
     # Append to product.images list and keep thumbnail as first image
+    # We store the OBJECT KEY instead of the URL to prevent expiry issues.
     existing_images = list(product.images or [])
-    existing_images.append(result["url"])
+    existing_images.append(result["object_key"])
     product.images = existing_images
     if not product.thumbnail:
-        product.thumbnail = result["url"]
+        product.thumbnail = result["object_key"]
 
     db.commit()
     db.refresh(product)
 
+    # For the response, we return freshly signed URLs
     return {
         "success": True,
         "object_key": result["object_key"],
-        "url": result["url"],
+        "url": sign_url(result["object_key"]),
         "file_name": result["file_name"],
         "file_size": result["file_size"],
         "content_type": result["content_type"],
-        "images": product.images,
-        "thumbnail": product.thumbnail,
+        "images": [sign_url(img) for img in product.images],
+        "thumbnail": sign_url(product.thumbnail),
     }
 
 

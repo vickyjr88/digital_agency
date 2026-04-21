@@ -173,6 +173,44 @@ def upload_product_image(
     }
 
 
+def sign_url(object_key_or_url: str, expiry_seconds: int = 60 * 60 * 24 * 7) -> str:
+    """
+    Given an object key or an existing (possibly expired) pre-signed URL,
+    returns a fresh 7-day pre-signed URL.
+    """
+    if not object_key_or_url:
+        return object_key_or_url
+
+    object_key = object_key_or_url
+    if "://" in object_key_or_url:
+        # It's a full URL. Extract the path.
+        # Format: https://host/bucket/object_key?params
+        try:
+            from urllib.parse import urlparse
+            path = urlparse(object_key_or_url).path
+            # path starts with /bucket/
+            parts = path.strip("/").split("/")
+            if len(parts) > 1 and parts[0] == MINIO_BUCKET:
+                object_key = "/".join(parts[1:])
+            else:
+                # Might not be our bucket or unexpected format
+                return object_key_or_url
+        except Exception:
+            return object_key_or_url
+
+    # Generate a fresh pre-signed URL
+    try:
+        client = _get_public_client()
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": MINIO_BUCKET, "Key": object_key},
+            ExpiresIn=expiry_seconds,
+        )
+        return url
+    except Exception:
+        return object_key_or_url
+
+
 def delete_product_image(object_key: str) -> bool:
     """Delete a product image from MinIO."""
     client = _get_client()
