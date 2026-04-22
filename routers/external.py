@@ -66,7 +66,7 @@ async def external_download_product(
         "expires_in": "24 hours"
     }
 
-@router.get("/", status_code=status.HTTP_200_OK)
+@router.get("", status_code=status.HTTP_200_OK)
 async def list_external_services(
     db: Session = Depends(get_db)
 ):

@@ -245,17 +245,24 @@ async def list_my_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all products belonging to current brand with stats."""
-    brand_profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
-    ).first()
+    """Get all products belonging to current brand (or all for admins) with stats."""
+    # Check if user is admin
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    is_admin = role_val.lower() == "admin"
 
-    if not brand_profile:
-        return []
+    if is_admin:
+        query = db.query(Product)
+    else:
+        brand_profile = db.query(BrandProfile).filter(
+            BrandProfile.user_id == current_user.id
+        ).first()
 
-    query = db.query(Product).filter(
-        Product.brand_profile_id == brand_profile.id
-    )
+        if not brand_profile:
+            return []
+
+        query = db.query(Product).filter(
+            Product.brand_profile_id == brand_profile.id
+        )
 
     if status:
         query = query.filter(Product.status == status)

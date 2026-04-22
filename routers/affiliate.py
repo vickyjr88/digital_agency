@@ -230,16 +230,21 @@ async def review_affiliate_application(
     Brand reviews and approves/rejects affiliate application.
     Only brand that owns the product can review.
     """
-    # Get brand profile
-    brand_profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
-    ).first()
+    # Check if user is admin
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    is_admin = role_val.lower() == "admin"
 
-    if not brand_profile:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized. Brand profile required."
-        )
+    if not is_admin:
+        # Get brand profile
+        brand_profile = db.query(BrandProfile).filter(
+            BrandProfile.user_id == current_user.id
+        ).first()
+
+        if not brand_profile:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized. Brand profile required."
+            )
 
     # Get application
     approval = db.query(AffiliateApproval).filter(
@@ -252,13 +257,15 @@ async def review_affiliate_application(
             detail="Application not found"
         )
 
-    # Verify brand owns the product
+    # Verify brand owns the product (skip for admin)
     product = db.query(Product).filter(
-        Product.id == approval.product_id,
-        Product.brand_profile_id == brand_profile.id
+        Product.id == approval.product_id
     ).first()
 
     if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if not is_admin and product.brand_profile_id != brand_profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to review this application"
@@ -540,24 +547,34 @@ async def get_pending_approvals(
     Get pending affiliate applications for brand's products.
     Brand endpoint.
     """
-    brand_profile = db.query(BrandProfile).filter(
-        BrandProfile.user_id == current_user.id
-    ).first()
+    # Check if user is admin
+    role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    is_admin = role_val.lower() == "admin"
 
-    if not brand_profile:
-        return []
+    if is_admin:
+        # Admin gets ALL pending approvals
+        approvals = db.query(AffiliateApproval).filter(
+            AffiliateApproval.status == "pending"
+        ).order_by(AffiliateApproval.applied_at.desc()).all()
+    else:
+        brand_profile = db.query(BrandProfile).filter(
+            BrandProfile.user_id == current_user.id
+        ).first()
 
-    # Get all product IDs for this brand
-    product_ids = db.query(Product.id).filter(
-        Product.brand_profile_id == brand_profile.id
-    ).all()
-    product_ids = [p[0] for p in product_ids]
+        if not brand_profile:
+            return []
 
-    # Get pending approvals for these products with influencer data
-    approvals = db.query(AffiliateApproval).filter(
-        AffiliateApproval.product_id.in_(product_ids),
-        AffiliateApproval.status == "pending"
-    ).order_by(AffiliateApproval.applied_at.desc()).all()
+        # Get all product IDs for this brand
+        product_ids = db.query(Product.id).filter(
+            Product.brand_profile_id == brand_profile.id
+        ).all()
+        product_ids = [p[0] for p in product_ids]
+
+        # Get pending approvals for these products with influencer data
+        approvals = db.query(AffiliateApproval).filter(
+            AffiliateApproval.product_id.in_(product_ids),
+            AffiliateApproval.status == "pending"
+        ).order_by(AffiliateApproval.applied_at.desc()).all()
 
     # Enrich with user data
     result = []
