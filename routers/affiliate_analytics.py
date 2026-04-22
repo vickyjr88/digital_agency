@@ -100,6 +100,7 @@ async def get_influencer_dashboard(
     average_order_value = (total_sales / total_orders_fulfilled) if total_orders_fulfilled > 0 else Decimal("0.00")
 
     return InfluencerDashboardStats(
+        influencer_id=influencer.id,
         total_clicks=total_clicks,
         total_orders=total_orders,
         total_orders_fulfilled=total_orders_fulfilled,

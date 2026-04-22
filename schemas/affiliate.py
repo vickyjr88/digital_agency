@@ -541,6 +541,7 @@ class CommissionResponse(BaseModel):
 # ============================================================================
 
 class InfluencerDashboardStats(BaseModel):
+    influencer_id: str
     total_clicks: int
     total_orders: int
     total_orders_fulfilled: int
