@@ -61,6 +61,8 @@ from routers.affiliate_analytics import router as affiliate_analytics_router
 from routers.digital_products import router as digital_products_router
 from routers.tumanasi import router as tumanasi_router
 from routers.system_categories import router as system_categories_router
+from routers.external import router as external_router
+
 
 load_dotenv()
 
@@ -267,6 +269,8 @@ app.include_router(affiliate_analytics_router)  # /api/affiliate-analytics
 app.include_router(digital_products_router)  # /api/digital-products
 app.include_router(tumanasi_router)            # /api/tumanasi
 app.include_router(system_categories_router, prefix="/api") # /api/categories
+app.include_router(external_router)            # /api/external
+
 
 # Security
 security = HTTPBearer()
@@ -1592,7 +1596,8 @@ def get_admin_stats(
         "Brand Profiles": total_brand_profiles,
         "Affiliate Profiles": total_affiliate_profiles,
         "Logistics Riders": total_riders,
-        "Generation Failures": db.query(GenerationFailure).count()
+        "Generation Failures": db.query(GenerationFailure).count(),
+        "External Services": db.query(ExternalService).count()
     }
 
     return {

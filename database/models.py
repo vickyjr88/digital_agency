@@ -206,3 +206,15 @@ class GenerationFailure(Base):
     trend = Column(String(500))
     error_message = Column(Text)
     timestamp = Column(DateTime, server_default=func.now())
+
+class ExternalService(Base):
+    """External applications that can access Dexter APIs via access keys."""
+    __tablename__ = "external_services"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(255), nullable=False, unique=True)
+    api_key = Column(String(255), nullable=False, unique=True, index=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
