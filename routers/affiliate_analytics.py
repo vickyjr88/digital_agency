@@ -329,23 +329,46 @@ async def get_brand_top_affiliates(
     if not brand_profile:
         return []
 
-    # Aggregate by influencer
+    # Subquery for clicks per influencer
+    clicks_sub = db.query(
+        AffiliateLink.influencer_id,
+        func.count(AffiliateClick.id).label('clicks')
+    ).join(
+        AffiliateClick, AffiliateLink.id == AffiliateClick.affiliate_link_id
+    ).join(
+        Product, AffiliateLink.product_id == Product.id
+    ).filter(
+        Product.brand_profile_id == brand_profile.id
+    ).group_by(
+        AffiliateLink.influencer_id
+    ).subquery()
+
+    # Aggregate sales by influencer
     results = db.query(
         Order.attributed_influencer_id,
         InfluencerProfile.display_name,
         func.count(Order.id).label('sales_count'),
         func.sum(Order.total_amount).label('total_sales'),
-        func.sum(AffiliateCommission.net_commission).label('commission_earned')
+        func.sum(AffiliateCommission.net_commission).label('commission_earned'),
+        InfluencerProfile.instagram_handle,
+        InfluencerProfile.phone_number,
+        func.coalesce(clicks_sub.c.clicks, 0).label('clicks_count')
     ).join(
         InfluencerProfile, Order.attributed_influencer_id == InfluencerProfile.id
     ).outerjoin(
         AffiliateCommission, Order.id == AffiliateCommission.order_id
+    ).outerjoin(
+        clicks_sub, Order.attributed_influencer_id == clicks_sub.c.influencer_id
     ).filter(
         Order.brand_profile_id == brand_profile.id,
         Order.attributed_influencer_id.isnot(None),
         Order.status == "fulfilled"
     ).group_by(
-        Order.attributed_influencer_id, InfluencerProfile.display_name
+        Order.attributed_influencer_id, 
+        InfluencerProfile.display_name,
+        InfluencerProfile.instagram_handle,
+        InfluencerProfile.phone_number,
+        clicks_sub.c.clicks
     ).order_by(
         func.count(Order.id).desc()
     ).limit(limit).all()
@@ -356,7 +379,10 @@ async def get_brand_top_affiliates(
             display_name=r[1],
             sales_count=r[2] or 0,
             total_sales=r[3] or Decimal("0.00"),
-            commission_earned=r[4] or Decimal("0.00")
+            commission_earned=r[4] or Decimal("0.00"),
+            instagram_handle=r[5],
+            phone_number=r[6],
+            clicks_count=r[7] or 0
         )
         for r in results
     ]
@@ -407,3 +433,93 @@ async def get_brand_top_products(
         )
         for r in results
     ]
+@router.get("/admin/affiliate-stats")
+async def get_admin_affiliate_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    System-wide affiliate performance stats for admin.
+    Provides a global view of clicks, influencers, sales, and top performers.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+        
+    # Global metrics
+    total_clicks = db.query(func.count(AffiliateClick.id)).scalar() or 0
+    total_influencers = db.query(func.count(InfluencerProfile.id)).scalar() or 0
+    
+    # Financial metrics from fulfilled orders
+    total_commissions = db.query(func.sum(Order.commission_amount)).filter(Order.status == "fulfilled").scalar() or Decimal("0.00")
+    total_sales = db.query(func.sum(Order.total_amount)).filter(Order.status == "fulfilled").scalar() or Decimal("0.00")
+    total_platform_fees = db.query(func.sum(Order.platform_fee_amount)).filter(Order.status == "fulfilled").scalar() or Decimal("0.00")
+    
+    # Top 10 influencers system-wide by sales volume
+    top_influencers_results = db.query(
+        InfluencerProfile.id,
+        InfluencerProfile.display_name,
+        func.count(Order.id).label("sales_count"),
+        func.sum(Order.total_amount).label("total_sales"),
+        func.sum(Order.commission_amount).label("commission_earned"),
+        InfluencerProfile.instagram_handle,
+        InfluencerProfile.phone_number
+    ).join(
+        Order, InfluencerProfile.id == Order.attributed_influencer_id
+    ).filter(
+        Order.status == "fulfilled"
+    ).group_by(
+        InfluencerProfile.id
+    ).order_by(
+        func.sum(Order.total_amount).desc()
+    ).limit(10).all()
+    
+    # Top 10 products system-wide by sales volume
+    top_products_results = db.query(
+        Product.id,
+        Product.name,
+        func.count(Order.id).label("sales_count"),
+        func.sum(Order.total_amount).label("total_sales"),
+        func.sum(Order.commission_amount).label("total_commission")
+    ).join(
+        Order, Product.id == Order.product_id
+    ).filter(
+        Order.status == "fulfilled"
+    ).group_by(
+        Product.id
+    ).order_by(
+        func.sum(Order.total_amount).desc()
+    ).limit(10).all()
+    
+    return {
+        "stats": {
+            "total_clicks": total_clicks,
+            "total_influencers": total_influencers,
+            "total_commissions": total_commissions,
+            "total_sales": total_sales,
+            "total_platform_fees": total_platform_fees,
+            "active_influencers": db.query(func.count(func.distinct(Order.attributed_influencer_id))).filter(Order.status == "fulfilled").scalar() or 0
+        },
+        "top_influencers": [
+            {
+                "influencer_id": r[0],
+                "display_name": r[1],
+                "sales_count": r[2],
+                "total_sales": r[3],
+                "commission_earned": r[4],
+                "instagram_handle": r[5],
+                "phone_number": r[6]
+            } for r in top_influencers_results
+        ],
+        "top_products": [
+            {
+                "product_id": r[0],
+                "product_name": r[1],
+                "sales_count": r[2],
+                "total_sales": r[3],
+                "total_commission": r[4]
+            } for r in top_products_results
+        ]
+    }

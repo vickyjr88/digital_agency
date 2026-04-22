@@ -21,7 +21,8 @@ from schemas.affiliate import (
     AffiliateApprovalResponse,
     AffiliateApprovalReview,
     AffiliateLinkResponse,
-    SuccessResponse
+    SuccessResponse,
+    InfluencerBasicInfo
 )
 
 from database.config import get_db
@@ -400,6 +401,43 @@ async def get_affiliate_link_for_product(
         )
 
     return link
+
+
+@router.get("/brand/influencers", response_model=List[InfluencerBasicInfo])
+async def get_brand_influencers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all approved influencers for this brand.
+    An influencer is considered a 'brand influencer' if they have 
+    at least one approved affiliate application for the brand's products.
+    """
+    # Verify brand profile
+    brand_profile = db.query(BrandProfile).filter(
+        BrandProfile.user_id == current_user.id
+    ).first()
+    
+    if not brand_profile:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Brand profile required"
+        )
+        
+    # Get influencers with approved applications for this brand's products
+    influencers = db.query(InfluencerProfile).join(
+        AffiliateApproval, InfluencerProfile.id == AffiliateApproval.influencer_id
+    ).join(
+        Product, AffiliateApproval.product_id == Product.id
+    ).filter(
+        Product.brand_profile_id == brand_profile.id,
+        AffiliateApproval.status == "approved"
+    ).distinct().all()
+    
+    # Sign URLs for profile pictures if they exist (though InfluencerProfile might not have them in this table)
+    # InfluencerProfile in database/marketplace_models.py
+    
+    return influencers
 
 
 @router.get("/storefront/{influencer_id}")

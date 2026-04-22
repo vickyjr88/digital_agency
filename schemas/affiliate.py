@@ -582,8 +582,11 @@ class TopPerformingAffiliate(BaseModel):
     influencer_id: str
     display_name: str
     sales_count: int
+    clicks_count: int = 0
     total_sales: Decimal
     commission_earned: Decimal
+    instagram_handle: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 # ============================================================================

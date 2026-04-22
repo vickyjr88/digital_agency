@@ -101,6 +101,87 @@ def calculate_commission(product: Product, total_amount: Decimal, db: Session = 
     }
 
 
+def pay_commission(db: Session, order: Order, commission: AffiliateCommission, now: datetime):
+    """
+    Helper to pay commission to an influencer's wallet.
+    Safely handles wallet creation and transaction recording.
+    """
+    if not commission or commission.status == "paid":
+        return False
+        
+    try:
+        # Get influencer's profile and user_id
+        influencer = db.query(InfluencerProfile).filter(
+            InfluencerProfile.id == commission.influencer_id
+        ).first()
+        
+        if not influencer:
+            return False
+            
+        # Get or create wallet
+        wallet = db.query(Wallet).filter(
+            Wallet.user_id == influencer.user_id
+        ).first()
+        
+        if not wallet:
+            wallet = Wallet(
+                id=generate_uuid(),
+                user_id=influencer.user_id,
+                balance=0,
+                hold_balance=0,
+                total_earned=0,
+                total_spent=0
+            )
+            db.add(wallet)
+            db.flush()
+            
+        commission_cents = int(commission.net_commission * 100)
+        
+        # Create wallet transaction
+        wallet_tx = WalletTransaction(
+            id=generate_uuid(),
+            to_wallet_id=wallet.id,
+            amount=commission_cents,
+            fee=int(commission.platform_fee * 100),
+            net_amount=commission_cents,
+            transaction_type="affiliate_commission",
+            status="completed",
+            payment_method="affiliate_commission",
+            description=f"Commission from order #{order.order_number}",
+            completed_at=now,
+        )
+        db.add(wallet_tx)
+        db.flush()
+        
+        # Update wallet balance
+        wallet.balance += commission_cents
+        wallet.total_earned = (wallet.total_earned or 0) + commission_cents
+        
+        # Update commission record
+        commission.status = "paid"
+        commission.paid_at = now
+        commission.wallet_transaction_id = wallet_tx.id
+        
+        # Update affiliate link stats
+        if order.affiliate_link_id:
+            aff_link = db.query(AffiliateLink).filter(
+                AffiliateLink.id == order.affiliate_link_id
+            ).first()
+            if aff_link:
+                aff_link.total_sales_amount = (aff_link.total_sales_amount or Decimal("0.00")) + order.total_amount
+                aff_link.total_commission_earned = (aff_link.total_commission_earned or Decimal("0.00")) + commission.net_commission
+
+        # Update product stats
+        product = db.query(Product).filter(Product.id == order.product_id).first()
+        if product:
+            product.total_sales_amount = (product.total_sales_amount or Decimal("0.00")) + order.total_amount
+            
+        return True
+    except Exception as e:
+        print(f"Error paying commission for order {order.id}: {e}")
+        return False
+
+
 # ============================================================================
 # ORDER PLACEMENT (NO PAYMENT)
 # ============================================================================
@@ -256,88 +337,18 @@ async def place_order(
         db.refresh(new_order)
 
         # === DIGITAL PRODUCT AUTO-FULFILLMENT ===
-        if product.is_digital:
-            # Auto-fulfill digital orders immediately
-            new_order.status = "fulfilled"
-            new_order.fulfilled_at = datetime.utcnow()
+            db.commit()
+            db.refresh(new_order)
 
-            # Generate secure access token for downloads
-            access_token = secrets.token_urlsafe(32)
-
-            digital_purchase = DigitalPurchase(
-                id=generate_uuid(),
-                order_id=new_order.id,
-                product_id=product.id,
-                customer_email=order_data.customer_email,
-                access_token=access_token,
-                download_count=0,
-                max_downloads=5,
-                status="completed"
-            )
-            db.add(digital_purchase)
-
-            # Pay commission immediately for digital products
+            # Auto-pay commission immediately for digital products
             if attributed_influencer_id:
                 commission = db.query(AffiliateCommission).filter(
                     AffiliateCommission.order_id == new_order.id,
                     AffiliateCommission.status == "pending"
                 ).first()
-
                 if commission:
-                    influencer = db.query(InfluencerProfile).filter(
-                        InfluencerProfile.id == commission.influencer_id
-                    ).first()
-
-                    wallet = db.query(Wallet).filter(
-                        Wallet.user_id == influencer.user_id
-                    ).first()
-
-                    if not wallet:
-                        wallet = Wallet(
-                            id=generate_uuid(),
-                            user_id=influencer.user_id,
-                            balance=0,
-                            hold_balance=0,
-                            total_earned=0,
-                            total_spent=0
-                        )
-                        db.add(wallet)
-                        db.flush()
-
-                    wallet_transaction = WalletTransaction(
-                        id=generate_uuid(),
-                        to_wallet_id=wallet.id,
-                        amount=int(commission.net_commission * 100),
-                        fee=int(commission.platform_fee * 100),
-                        net_amount=int(commission.net_commission * 100),
-                        transaction_type="affiliate_commission",
-                        status="completed",
-                        payment_method="affiliate_commission",
-                        description=f"Digital sale commission - order #{new_order.order_number}",
-                        completed_at=datetime.utcnow()
-                    )
-                    db.add(wallet_transaction)
-                    db.flush()
-
-                    wallet.balance += int(commission.net_commission * 100)
-                    wallet.total_earned += int(commission.net_commission * 100)
-
-                    commission.status = "paid"
-                    commission.paid_at = datetime.utcnow()
-                    commission.wallet_transaction_id = wallet_transaction.id
-
-                    if order_data.affiliate_code and affiliate_link_id:
-                        aff_link = db.query(AffiliateLink).filter(
-                            AffiliateLink.id == affiliate_link_id
-                        ).first()
-                        if aff_link:
-                            aff_link.total_sales_amount += total_amount
-                            aff_link.total_commission_earned += commission.net_commission
-
-                product.total_sales_amount += total_amount
-
-            db.commit()
-            db.refresh(new_order)
+                    pay_commission(db, new_order, commission, datetime.utcnow())
+                    db.commit()
 
             # Return response with access token for digital products
             response_data = OrderResponse.from_orm(new_order)
@@ -374,63 +385,15 @@ async def place_order(
             facebook_page=brand_profile.facebook_page
         )
 
-        # For digital products: auto-pay commission immediately (order is already fulfilled)
+        # For digital products: auto-pay commission if still pending
         if product.is_digital and attributed_influencer_id:
-            try:
-                commission = db.query(AffiliateCommission).filter(
-                    AffiliateCommission.order_id == new_order.id,
-                    AffiliateCommission.status == "pending"
-                ).first()
-
-                if commission:
-                    influencer = db.query(InfluencerProfile).filter(
-                        InfluencerProfile.id == commission.influencer_id
-                    ).first()
-
-                    if influencer:
-                        wallet = db.query(Wallet).filter(
-                            Wallet.user_id == influencer.user_id
-                        ).first()
-
-                        if not wallet:
-                            wallet = Wallet(
-                                id=generate_uuid(),
-                                user_id=influencer.user_id,
-                                balance=0,
-                                hold_balance=0,
-                                total_earned=0,
-                                total_spent=0
-                            )
-                            db.add(wallet)
-                            db.flush()
-
-                        commission_cents = int(commission.net_commission * 100)
-                        wallet_tx = WalletTransaction(
-                            id=generate_uuid(),
-                            to_wallet_id=wallet.id,
-                            amount=commission_cents,
-                            fee=int(commission.platform_fee * 100),
-                            net_amount=commission_cents,
-                            transaction_type="affiliate_commission",
-                            status="completed",
-                            payment_method="affiliate_commission",
-                            description=f"Commission from digital order #{new_order.order_number}",
-                            completed_at=now,
-                        )
-                        db.add(wallet_tx)
-                        db.flush()
-
-                        wallet.balance += commission_cents
-                        wallet.total_earned = (wallet.total_earned or 0) + commission_cents
-
-                        commission.status = "paid"
-                        commission.paid_at = now
-                        commission.wallet_transaction_id = wallet_tx.id
-
-                        db.commit()
-            except Exception:
-                # Don't fail the order if commission payout has an issue
-                db.rollback()
+            commission = db.query(AffiliateCommission).filter(
+                AffiliateCommission.order_id == new_order.id,
+                AffiliateCommission.status == "pending"
+            ).first()
+            if commission:
+                pay_commission(db, new_order, commission, now)
+                db.commit()
 
         # For digital products: include presigned download URL in the response
         if product.is_digital and product.digital_file_key:
@@ -781,61 +744,30 @@ async def verify_order_payment(
                 if product.stock_quantity <= 0:
                     product.in_stock = False
 
-        # For digital products: auto-pay commission immediately
-        if product.is_digital and attributed_influencer_id:
-            try:
+        # For digital products: create DigitalPurchase record and pay commission
+        if product.is_digital:
+            # Create digital purchase record for download tracking
+            access_token = secrets.token_urlsafe(32)
+            digital_purchase = DigitalPurchase(
+                id=generate_uuid(),
+                order_id=new_order.id,
+                product_id=product.id,
+                customer_email=new_order.customer_email,
+                access_token=access_token,
+                download_count=0,
+                max_downloads=5,
+                status="completed"
+            )
+            db.add(digital_purchase)
+            
+            # Auto-pay commission
+            if attributed_influencer_id:
                 commission = db.query(AffiliateCommission).filter(
                     AffiliateCommission.order_id == new_order.id,
                     AffiliateCommission.status == "pending"
                 ).first()
-
                 if commission:
-                    influencer = db.query(InfluencerProfile).filter(
-                        InfluencerProfile.id == commission.influencer_id
-                    ).first()
-
-                    if influencer:
-                        wallet = db.query(Wallet).filter(
-                            Wallet.user_id == influencer.user_id
-                        ).first()
-
-                        if not wallet:
-                            wallet = Wallet(
-                                id=generate_uuid(),
-                                user_id=influencer.user_id,
-                                balance=0,
-                                hold_balance=0,
-                                total_earned=0,
-                                total_spent=0
-                            )
-                            db.add(wallet)
-                            db.flush()
-
-                        commission_cents = int(commission.net_commission * 100)
-                        wallet_tx = WalletTransaction(
-                            id=generate_uuid(),
-                            to_wallet_id=wallet.id,
-                            amount=commission_cents,
-                            fee=int(commission.platform_fee * 100),
-                            net_amount=commission_cents,
-                            transaction_type="affiliate_commission",
-                            status="completed",
-                            payment_method="affiliate_commission",
-                            description=f"Commission from digital order #{new_order.order_number}",
-                            completed_at=now,
-                        )
-                        db.add(wallet_tx)
-                        db.flush()
-
-                        wallet.balance += commission_cents
-                        wallet.total_earned = (wallet.total_earned or 0) + commission_cents
-
-                        commission.status = "paid"
-                        commission.paid_at = now
-                        commission.wallet_transaction_id = wallet_tx.id
-            except Exception:
-                # Don't fail the order if commission payout has an issue
-                pass
+                    pay_commission(db, new_order, commission, now)
 
         db.commit()
         db.refresh(new_order)
@@ -1048,6 +980,13 @@ async def admin_update_order_status(
     order.status = status_update.status
     if status_update.status == "fulfilled":
         order.fulfilled_at = datetime.utcnow()
+        # Pay commission if pending
+        commission = db.query(AffiliateCommission).filter(
+            AffiliateCommission.order_id == order_id,
+            AffiliateCommission.status == "pending"
+        ).first()
+        if commission:
+            pay_commission(db, order, commission, datetime.utcnow())
 
     db.commit()
     db.refresh(order)
@@ -1175,84 +1114,18 @@ async def update_order_status(
         order.cancelled_at = datetime.utcnow()
         order.cancellation_reason = status_update.cancellation_reason
 
-    # COMMISSION PAYOUT - Immediately when fulfilled
-    if status_update.status == "fulfilled" and old_status != "fulfilled":
+    # COMMISSION PAYOUT - Immediately when fulfilled (or if already fulfilled but commission is pending)
+    if status_update.status == "fulfilled":
         commission = db.query(AffiliateCommission).filter(
             AffiliateCommission.order_id == order_id,
             AffiliateCommission.status == "pending"
         ).first()
 
         if commission:
-            try:
-                # Get influencer's wallet
-                influencer = db.query(InfluencerProfile).filter(
-                    InfluencerProfile.id == commission.influencer_id
-                ).first()
+            pay_commission(db, order, commission, datetime.utcnow())
 
-                wallet = db.query(Wallet).filter(
-                    Wallet.user_id == influencer.user_id
-                ).first()
-
-                if not wallet:
-                    # Create wallet if doesn't exist
-                    wallet = Wallet(
-                        id=generate_uuid(),
-                        user_id=influencer.user_id,
-                        balance=0,
-                        hold_balance=0,
-                        total_earned=0,
-                        total_spent=0
-                    )
-                    db.add(wallet)
-                    db.flush()
-
-                # Create wallet transaction
-                wallet_transaction = WalletTransaction(
-                    id=generate_uuid(),
-                    to_wallet_id=wallet.id,
-                    amount=int(commission.net_commission * 100),  # Convert to cents
-                    fee=int(commission.platform_fee * 100),
-                    net_amount=int(commission.net_commission * 100),
-                    transaction_type="affiliate_commission",
-                    status="completed",
-                    payment_method="affiliate_commission",
-                    description=f"Commission from order #{order.order_number}",
-                    completed_at=datetime.utcnow()
-                )
-                db.add(wallet_transaction)
-                db.flush()
-
-                # Update wallet balance
-                wallet.balance += int(commission.net_commission * 100)
-                wallet.total_earned += int(commission.net_commission * 100)
-
-                # Update commission record
-                commission.status = "paid"
-                commission.paid_at = datetime.utcnow()
-                commission.wallet_transaction_id = wallet_transaction.id
-
-                # Update affiliate link stats
-                if order.affiliate_link_id:
-                    affiliate_link = db.query(AffiliateLink).filter(
-                        AffiliateLink.id == order.affiliate_link_id
-                    ).first()
-                    if affiliate_link:
-                        affiliate_link.total_sales_amount += order.total_amount
-                        affiliate_link.total_commission_earned += commission.net_commission
-
-                # Update product stats
-                product = db.query(Product).filter(
-                    Product.id == order.product_id
-                ).first()
-                if product:
-                    product.total_sales_amount += order.total_amount
-
-            except Exception as e:
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to process commission: {str(e)}"
-                )
+    db.commit()
+    db.refresh(order)
 
     # Handle cancellation - cancel commission
     if status_update.status == "cancelled" and old_status != "cancelled":
