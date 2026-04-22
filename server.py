@@ -221,6 +221,8 @@ app.add_middleware(
         "https://dexter.vitaldigitalmedia.net",
         "https://tumanasi.vitaldigitalmedia.net",
         "https://nseacademy.vitaldigitalmedia.net",
+        "https://nseacademy-cms.vitaldigitalmedia.net",
+        "https://nseacademy-admin.vitaldigitalmedia.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
