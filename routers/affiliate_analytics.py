@@ -45,9 +45,17 @@ async def get_influencer_dashboard(
     ).first()
 
     if not influencer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Influencer profile not found"
+        return InfluencerDashboardStats(
+            influencer_id="",
+            total_clicks=0,
+            total_orders=0,
+            total_orders_fulfilled=0,
+            total_sales=Decimal("0.00"),
+            total_commissions_earned=Decimal("0.00"),
+            pending_commissions=Decimal("0.00"),
+            available_to_withdraw=Decimal("0.00"),
+            conversion_rate=Decimal("0.00"),
+            average_order_value=Decimal("0.00")
         )
 
     # Date range
@@ -175,9 +183,21 @@ async def get_brand_dashboard(
     ).first()
 
     if not brand_profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Brand profile not found"
+        return BrandDashboardStats(
+            total_products=0,
+            active_products=0,
+            total_affiliates=0,
+            active_affiliates=0,
+            total_clicks=0,
+            total_orders=0,
+            total_orders_fulfilled=0,
+            total_sales=Decimal("0.00"),
+            total_commissions_paid=Decimal("0.00"),
+            total_platform_fees=Decimal("0.00"),
+            conversion_rate=Decimal("0.00"),
+            roi=Decimal("0.00"),
+            cpe=Decimal("0.00"),
+            conversions_by_location=[]
         )
 
     # Date range
