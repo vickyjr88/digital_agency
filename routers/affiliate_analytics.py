@@ -7,7 +7,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from database.models import User
+from database.models import User, UserRole, UserType
 from database.marketplace_models import InfluencerProfile
 from database.affiliate_models import (
     Product,
@@ -442,7 +442,8 @@ async def get_admin_affiliate_stats(
     System-wide affiliate performance stats for admin.
     Provides a global view of clicks, influencers, sales, and top performers.
     """
-    if not current_user.is_admin:
+    is_admin = current_user.role == UserRole.ADMIN or current_user.user_type == UserType.ADMIN
+    if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
