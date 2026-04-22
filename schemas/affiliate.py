@@ -564,6 +564,9 @@ class BrandDashboardStats(BaseModel):
     total_commissions_paid: Decimal
     total_platform_fees: Decimal
     conversion_rate: Optional[Decimal]
+    roi: Optional[Decimal] = None
+    cpe: Optional[Decimal] = None
+    conversions_by_location: Optional[List[Dict[str, Any]]] = None
 
 
 class TopPerformingProduct(BaseModel):

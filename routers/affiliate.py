@@ -394,6 +394,66 @@ async def get_affiliate_link_for_product(
     return link
 
 
+@router.get("/storefront/{influencer_id}")
+async def get_influencer_storefront(
+    influencer_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Public endpoint to get an influencer's curated storefront.
+    Returns influencer profile and all active products they are promoting.
+    """
+    influencer = db.query(InfluencerProfile).filter(
+        InfluencerProfile.id == influencer_id
+    ).first()
+
+    if not influencer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Influencer not found"
+        )
+        
+    user = db.query(User).filter(User.id == influencer.user_id).first()
+
+    links = db.query(AffiliateLink).filter(
+        AffiliateLink.influencer_id == influencer_id
+    ).all()
+
+    products_data = []
+    for link in links:
+        product = db.query(Product).filter(
+            Product.id == link.product_id,
+            Product.status == "active"
+        ).first()
+        
+        if product:
+            products_data.append({
+                "product_id": product.id,
+                "name": product.name,
+                "slug": product.slug,
+                "thumbnail": product.thumbnail,
+                "category": product.category,
+                "price": float(product.price),
+                "currency": product.currency,
+                "affiliate_code": link.affiliate_code,
+                "link_url": link.link_url
+            })
+
+    return {
+        "influencer": {
+            "id": influencer.id,
+            "name": user.name if user else influencer.display_name,
+            "display_name": influencer.display_name,
+            "bio": influencer.bio,
+            "profile_image_url": influencer.profile_image_url,
+            "instagram_handle": influencer.instagram_handle,
+            "tiktok_handle": influencer.tiktok_handle,
+            "youtube_channel": influencer.youtube_channel
+        },
+        "products": products_data
+    }
+
+
 # ============================================================================
 # CLICK TRACKING
 # ============================================================================

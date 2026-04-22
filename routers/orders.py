@@ -10,6 +10,7 @@ import random
 import string
 import os
 import secrets
+from sqlalchemy.sql import func
 
 from core.minio_service import generate_download_url
 from core.paystack_service import PaystackService
@@ -52,15 +53,32 @@ def generate_order_number() -> str:
     return f"DEX-{year}-{random_part}"
 
 
-def calculate_commission(product: Product, total_amount: Decimal) -> dict:
+def calculate_commission(product: Product, total_amount: Decimal, db: Session = None, influencer_id: str = None) -> dict:
     """
-    Calculate commission based on product settings.
+    Calculate commission based on product settings and influencer tier.
     Returns dict with commission details.
     """
+    multiplier = 1.0
+    if db and influencer_id:
+        # Determine tier based on total successful sales
+        total_sales = db.query(func.count(Order.id)).filter(
+            Order.attributed_influencer_id == influencer_id,
+            Order.status.in_(["fulfilled", "shipped", "delivered"])
+        ).scalar() or 0
+        
+        if total_sales >= 200:
+            multiplier = 1.5  # Platinum: 50% boost
+        elif total_sales >= 50:
+            multiplier = 1.2  # Gold: 20% boost
+
     if product.commission_type == "percentage":
-        gross_commission = total_amount * (product.commission_rate / 100)
+        base_rate = product.commission_rate
+        actual_rate = base_rate * Decimal(str(multiplier))
+        gross_commission = total_amount * (actual_rate / 100)
     else:  # fixed
-        gross_commission = product.fixed_commission
+        actual_rate = None
+        base_commission = product.fixed_commission
+        gross_commission = base_commission * Decimal(str(multiplier))
 
     # Calculate platform fee
     if product.platform_fee_type == "percentage":
@@ -73,7 +91,7 @@ def calculate_commission(product: Product, total_amount: Decimal) -> dict:
 
     return {
         "commission_type": product.commission_type,
-        "commission_rate": product.commission_rate if product.commission_type == "percentage" else None,
+        "commission_rate": actual_rate if product.commission_type == "percentage" else None,
         "commission_amount": gross_commission,
         "platform_fee_type": product.platform_fee_type,
         "platform_fee_rate": product.platform_fee_rate if product.platform_fee_type == "percentage" else None,
@@ -136,9 +154,6 @@ async def place_order(
     unit_price = variant.price if (variant and variant.price) else product.price
     total_amount = unit_price * order_data.quantity
 
-    # Calculate commission
-    commission_info = calculate_commission(product, total_amount)
-
     # Attribution - check affiliate code
     attributed_influencer_id = None
     affiliate_link_id = None
@@ -152,6 +167,9 @@ async def place_order(
         if affiliate_link:
             attributed_influencer_id = affiliate_link.influencer_id
             affiliate_link_id = affiliate_link.id
+
+    # Calculate commission
+    commission_info = calculate_commission(product, total_amount, db, attributed_influencer_id)
 
     # Generate order number
     order_number = generate_order_number()
@@ -665,9 +683,6 @@ async def verify_order_payment(
         quantity = int(metadata.get("quantity", 1))
         total_amount = unit_price * quantity
 
-        # Calculate commission
-        commission_info = calculate_commission(product, total_amount)
-
         # Attribution - check affiliate code
         attributed_influencer_id = None
         affiliate_link_id = None
@@ -681,6 +696,9 @@ async def verify_order_payment(
             if affiliate_link:
                 attributed_influencer_id = affiliate_link.influencer_id
                 affiliate_link_id = affiliate_link.id
+
+        # Calculate commission
+        commission_info = calculate_commission(product, total_amount, db, attributed_influencer_id)
 
         # Generate order number
         order_number = generate_order_number()

@@ -249,6 +249,33 @@ async def get_brand_dashboard(
     # Conversion rate
     conversion_rate = (total_orders / total_clicks * 100) if total_clicks > 0 else Decimal("0.00")
 
+    # ROI Calculation: ((Total Sales - Total Commissions Paid) / Total Commissions Paid) * 100
+    roi = Decimal("0.00")
+    if total_commissions_paid > 0:
+        roi = ((total_sales - total_commissions_paid) / total_commissions_paid) * 100
+    
+    # CPE (Cost Per Engagement / Click) Calculation
+    cpe = Decimal("0.00")
+    if total_clicks > 0:
+        cpe = total_commissions_paid / total_clicks
+
+    # Conversions by Location
+    location_results = db.query(
+        func.coalesce(AffiliateClick.country, 'Unknown').label('country'),
+        func.count(AffiliateClick.id).label('conversions')
+    ).filter(
+        AffiliateClick.product_id.in_(
+            db.query(Product.id).filter(Product.brand_profile_id == brand_profile.id)
+        ),
+        AffiliateClick.converted == True,
+        AffiliateClick.clicked_at >= start_date
+    ).group_by('country').all()
+
+    conversions_by_location = [
+        {"country": r[0], "conversions": r[1]}
+        for r in location_results
+    ]
+
     return BrandDashboardStats(
         total_products=total_products,
         active_products=active_products,
@@ -260,7 +287,10 @@ async def get_brand_dashboard(
         total_sales=total_sales,
         total_commissions_paid=total_commissions_paid,
         total_platform_fees=total_platform_fees,
-        conversion_rate=round(conversion_rate, 2)
+        conversion_rate=round(conversion_rate, 2),
+        roi=round(roi, 2),
+        cpe=round(cpe, 2),
+        conversions_by_location=conversions_by_location
     )
 
 
