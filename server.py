@@ -505,6 +505,7 @@ def get_current_user_info(current_user: User = Depends(get_current_user), db: Se
         "subscription_status": current_user.subscription_status,
         "trial_ends_at": current_user.trial_ends_at,
         "created_at": current_user.created_at,
+        "influencer_id": db.query(InfluencerProfile.id).filter(InfluencerProfile.user_id == current_user.id).scalar() if current_user.user_type == UserType.INFLUENCER else None,
         "usage": {
             "current": current_usage,
             "limit": current_user.content_limit

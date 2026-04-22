@@ -415,6 +415,12 @@ async def get_influencer_storefront(
         InfluencerProfile.id == influencer_id
     ).first()
 
+    # Robustness: Try user_id if id lookup fails
+    if not influencer:
+        influencer = db.query(InfluencerProfile).filter(
+            InfluencerProfile.user_id == influencer_id
+        ).first()
+
     if not influencer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
