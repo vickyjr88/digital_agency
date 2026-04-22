@@ -351,7 +351,7 @@ async def get_brand_top_affiliates(
         func.sum(Order.total_amount).label('total_sales'),
         func.sum(AffiliateCommission.net_commission).label('commission_earned'),
         InfluencerProfile.instagram_handle,
-        InfluencerProfile.phone_number,
+        InfluencerProfile.whatsapp_number,
         func.coalesce(clicks_sub.c.clicks, 0).label('clicks_count')
     ).join(
         InfluencerProfile, Order.attributed_influencer_id == InfluencerProfile.id
@@ -367,7 +367,7 @@ async def get_brand_top_affiliates(
         Order.attributed_influencer_id, 
         InfluencerProfile.display_name,
         InfluencerProfile.instagram_handle,
-        InfluencerProfile.phone_number,
+        InfluencerProfile.whatsapp_number,
         clicks_sub.c.clicks
     ).order_by(
         func.count(Order.id).desc()
@@ -466,13 +466,16 @@ async def get_admin_affiliate_stats(
         func.sum(Order.total_amount).label("total_sales"),
         func.sum(Order.commission_amount).label("commission_earned"),
         InfluencerProfile.instagram_handle,
-        InfluencerProfile.phone_number
+        InfluencerProfile.whatsapp_number
     ).join(
         Order, InfluencerProfile.id == Order.attributed_influencer_id
     ).filter(
         Order.status == "fulfilled"
     ).group_by(
-        InfluencerProfile.id
+        InfluencerProfile.id,
+        InfluencerProfile.display_name,
+        InfluencerProfile.instagram_handle,
+        InfluencerProfile.whatsapp_number
     ).order_by(
         func.sum(Order.total_amount).desc()
     ).limit(10).all()
