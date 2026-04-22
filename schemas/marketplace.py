@@ -206,6 +206,11 @@ class InfluencerProfileResponse(BaseModel):
     is_verified: bool = False
     verification_status: VerificationStatus = VerificationStatus.PENDING
     
+    # Frontend compatibility aliases
+    phone_number: Optional[str] = None
+    handle: Optional[str] = None
+    follower_count: int = 0
+    
     contact_email: Optional[str] = None
     
     created_at: datetime

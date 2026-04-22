@@ -699,6 +699,11 @@ def _profile_to_response(profile: InfluencerProfile) -> InfluencerProfileRespons
         review_count=profile.review_count or 0,
         completed_campaigns=profile.completed_campaigns or 0,
         
+        # Frontend compatibility aliases
+        phone_number=profile.whatsapp_number,
+        handle=profile.instagram_handle or profile.tiktok_handle or profile.youtube_channel or profile.twitter_handle or profile.display_name,
+        follower_count=(profile.instagram_followers or 0) + (profile.tiktok_followers or 0) + (profile.youtube_subscribers or 0) + (profile.twitter_followers or 0),
+        
         # Verification
         is_verified=profile.is_verified or False,
         verification_status=VerificationStatus(profile.verification_status.value) if profile.verification_status else VerificationStatus.PENDING,
