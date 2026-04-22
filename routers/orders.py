@@ -337,9 +337,7 @@ async def place_order(
         db.refresh(new_order)
 
         # === DIGITAL PRODUCT AUTO-FULFILLMENT ===
-            db.commit()
-            db.refresh(new_order)
-
+        if product.is_digital:
             # Auto-pay commission immediately for digital products
             if attributed_influencer_id:
                 commission = db.query(AffiliateCommission).filter(
@@ -347,7 +345,7 @@ async def place_order(
                     AffiliateCommission.status == "pending"
                 ).first()
                 if commission:
-                    pay_commission(db, new_order, commission, datetime.utcnow())
+                    pay_commission(db, new_order, commission, now)
                     db.commit()
 
             # Return response with access token for digital products
@@ -363,45 +361,31 @@ async def place_order(
                 instagram_handle=product.brand_profile.instagram_handle,
                 facebook_page=product.brand_profile.facebook_page
             )
+            
+            # Include presigned download URL
+            if product.digital_file_key:
+                try:
+                    response_data.download_url = generate_download_url(product.digital_file_key)
+                    response_data.download_file_name = product.digital_file_name
+                except Exception:
+                    pass
+            
             return response_data
 
         # === PHYSICAL PRODUCT - Return brand contact info ===
-        # Load brand profile for contact info
-        brand_profile = db.query(BrandProfile).filter(
-            BrandProfile.id == product.brand_profile_id
-        ).first()
-
-        # Prepare response with brand contact
+        # Prepare response with brand contact from the joined brand_profile
         response_data = OrderResponse.from_orm(new_order)
         response_data.brand_contact = BrandContactInfo(
-            whatsapp_number=brand_profile.whatsapp_number,
-            business_location=brand_profile.business_location,
-            business_hours=brand_profile.business_hours,
-            preferred_contact_method=brand_profile.preferred_contact_method,
-            phone_number=brand_profile.phone_number,
-            business_email=brand_profile.business_email,
-            website_url=brand_profile.website_url,
-            instagram_handle=brand_profile.instagram_handle,
-            facebook_page=brand_profile.facebook_page
+            whatsapp_number=product.brand_profile.whatsapp_number,
+            business_location=product.brand_profile.business_location,
+            business_hours=product.brand_profile.business_hours,
+            preferred_contact_method=product.brand_profile.preferred_contact_method,
+            phone_number=product.brand_profile.phone_number,
+            business_email=product.brand_profile.business_email,
+            website_url=product.brand_profile.website_url,
+            instagram_handle=product.brand_profile.instagram_handle,
+            facebook_page=product.brand_profile.facebook_page
         )
-
-        # For digital products: auto-pay commission if still pending
-        if product.is_digital and attributed_influencer_id:
-            commission = db.query(AffiliateCommission).filter(
-                AffiliateCommission.order_id == new_order.id,
-                AffiliateCommission.status == "pending"
-            ).first()
-            if commission:
-                pay_commission(db, new_order, commission, now)
-                db.commit()
-
-        # For digital products: include presigned download URL in the response
-        if product.is_digital and product.digital_file_key:
-            try:
-                response_data.download_url = generate_download_url(product.digital_file_key)
-                response_data.download_file_name = product.digital_file_name
-            except Exception:
-                pass  # Don't fail the order if URL generation has an issue
 
         return response_data
 
