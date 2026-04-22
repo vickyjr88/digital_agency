@@ -402,7 +402,7 @@ async def get_product(
             detail="Product not found"
         )
 
-    return product
+    return ProductResponse.from_orm(product)
 
 
 @router.get("/slug/{slug}", response_model=ProductResponse)
@@ -421,7 +421,7 @@ async def get_product_by_slug(
             detail="Product not found"
         )
 
-    return product
+    return ProductResponse.from_orm(product)
 
 
 @router.put("/{product_id}", response_model=ProductResponse)

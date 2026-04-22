@@ -26,6 +26,7 @@ from schemas.affiliate import (
 
 from database.config import get_db
 from auth.dependencies import get_current_user
+from core.minio_service import sign_url
 
 router = APIRouter(prefix="/api/affiliate", tags=["Affiliate System"])
 
@@ -358,7 +359,7 @@ async def get_my_affiliate_links(
             "product": {
                 "name": product.name if product else "Unknown Product",
                 "slug": product.slug if product else None,
-                "thumbnail": product.thumbnail if product else None,
+                "thumbnail": sign_url(product.thumbnail) if product and product.thumbnail else None,
                 "category": product.category if product else None,
                 "price": float(product.price) if product else 0,
                 "commission_type": product.commission_type if product else None,
@@ -438,7 +439,7 @@ async def get_influencer_storefront(
                 "product_id": product.id,
                 "name": product.name,
                 "slug": product.slug,
-                "thumbnail": product.thumbnail,
+                "thumbnail": sign_url(product.thumbnail) if product.thumbnail else None,
                 "category": product.category,
                 "price": float(product.price),
                 "currency": product.currency,
@@ -452,7 +453,7 @@ async def get_influencer_storefront(
             "name": user.name if user else influencer.display_name,
             "display_name": influencer.display_name,
             "bio": influencer.bio,
-            "profile_image_url": influencer.profile_image_url,
+            "profile_image_url": sign_url(influencer.profile_picture_url),
             "instagram_handle": influencer.instagram_handle,
             "tiktok_handle": influencer.tiktok_handle,
             "youtube_channel": influencer.youtube_channel
